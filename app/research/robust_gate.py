@@ -1,19 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass
-
 @dataclass(frozen=True)
-class GateResult:
-    passed: bool
-    reasons: tuple[str,...]
-
-def gate(*, median_pnl: float, p05_pnl: float, max_drawdown: float,
-         loss_probability: float, consistency: float,
-         min_p05: float=0.0, max_dd: float=0.25,
-         max_loss_probability: float=0.50, min_consistency: float=0.60) -> GateResult:
-    reasons=[]
-    if p05_pnl < min_p05: reasons.append("P05_BELOW_MIN")
-    if max_drawdown > max_dd: reasons.append("DRAWDOWN_TOO_HIGH")
-    if loss_probability > max_loss_probability: reasons.append("LOSS_PROBABILITY_TOO_HIGH")
-    if consistency < min_consistency: reasons.append("INCONSISTENT")
-    if median_pnl <= 0: reasons.append("MEDIAN_PNL_NON_POSITIVE")
-    return GateResult(not reasons,tuple(reasons))
+class RobustGate:
+    min_test_trades:int=20
+    min_test_pf:float=1.1
+    max_test_dd:float=0.30
+    min_train_test_ratio:float=0.50
+def passes(train:dict,test:dict,g:RobustGate=RobustGate()):
+    trades=int(test.get("trades",0)); pf=float(test.get("profit_factor",0)); dd=float(test.get("max_drawdown",0)); train_pf=float(train.get("profit_factor",0))
+    ratio=0 if train_pf<=0 else pf/train_pf
+    return trades>=g.min_test_trades and pf>=g.min_test_pf and dd<=g.max_test_dd and ratio>=g.min_train_test_ratio
