@@ -4,23 +4,23 @@ from dataclasses import dataclass
 from typing import Callable
 
 @dataclass(frozen=True)
-class LoopConfig:
-    interval_seconds: int = 30
-    max_iterations: int | None = None
+class PaperLoopConfig:
+    interval_seconds:int=30
 
 class PaperLoop:
-    def __init__(self, collect: Callable[[], None], cycle: Callable[[], None], config: LoopConfig = LoopConfig()):
-        if config.interval_seconds < 1: raise ValueError("interval_seconds must be >= 1")
-        self.collect, self.cycle, self.config = collect, cycle, config
+    def __init__(self, fetch_watchlist:Callable[[],list[str]],
+                 observe:Callable[[str],object], process:Callable[[str,object],None],
+                 config:PaperLoopConfig=PaperLoopConfig()):
+        self.fetch_watchlist=fetch_watchlist; self.observe=observe; self.process=process; self.config=config
 
-    def run(self) -> int:
-        count = 0
-        while self.config.max_iterations is None or count < self.config.max_iterations:
-            started = time.monotonic()
-            self.collect()
-            self.cycle()
-            count += 1
-            remaining = self.config.interval_seconds - (time.monotonic() - started)
-            if remaining > 0 and (self.config.max_iterations is None or count < self.config.max_iterations):
-                time.sleep(remaining)
-        return count
+    def run_once(self)->int:
+        n=0
+        for pool in self.fetch_watchlist():
+            self.process(pool,self.observe(pool)); n+=1
+        return n
+
+    def run_forever(self, stop:Callable[[],bool]=lambda:False):
+        while not stop():
+            started=time.monotonic()
+            self.run_once()
+            time.sleep(max(0,self.config.interval_seconds-(time.monotonic()-started)))
