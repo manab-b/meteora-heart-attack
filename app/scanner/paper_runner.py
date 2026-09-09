@@ -69,7 +69,10 @@ def apply_entry_decisions(
 ) -> list[str]:
     opened: list[str] = []
     for decision in decisions:
-        if decision.action != "ENTER" or decision.pool_address in engine.positions:
+        if decision.action != "ENTER" or any(
+            position.pool_address == decision.pool_address and position.status == "OPEN"
+            for position in engine.positions.values()
+        ):
             continue
         if decision.pool_address not in price_by_pool or decision.pool_address not in range_by_pool:
             continue
@@ -107,3 +110,52 @@ def apply_entry_decisions_persisted(
     )
     persist_engine(connection, engine)
     return opened
+
+
+def apply_paper_tick(
+    connection: sqlite3.Connection,
+    engine: PaperEngine,
+    position_id: str,
+    *,
+    price: float,
+    fee_delta_sol: float,
+    timestamp: float | None = None,
+    in_range: bool | None = None,
+    drain_score: float = 0.0,
+    fee_velocity_sol_min: float = 0.0,
+    exit_config: ExitConfig = ExitConfig(),
+    x_amount: float | None = None,
+    y_amount: float | None = None,
+    x_price_usd: float | None = None,
+    y_price_usd: float | None = None,
+) -> PaperDecision | None:
+    position = engine.positions[position_id]
+    if position.status != "OPEN":
+        return None
+    engine.tick(
+        position_id,
+        price,
+        fee_delta_sol,
+        timestamp,
+        x_amount=x_amount,
+        y_amount=y_amount,
+        x_price_usd=x_price_usd,
+        y_price_usd=y_price_usd,
+    )
+    if in_range is None:
+        in_range = position.min_price <= price <= position.max_price
+    out_of_range_seconds = 0.0
+    if not in_range and position.out_of_range_since is not None and timestamp is not None:
+        out_of_range_seconds = max(0.0, timestamp - position.out_of_range_since)
+    decision = evaluate_paper_exit(
+        pool_address=position.pool_address,
+        in_range=in_range,
+        out_of_range_seconds=out_of_range_seconds,
+        drain_score=drain_score,
+        fee_velocity_sol_min=fee_velocity_sol_min,
+        exit_config=exit_config,
+    )
+    if decision is not None and position.status == "OPEN":
+        engine.close(position_id, price, decision.reason, timestamp)
+    persist_engine(connection, engine)
+    return decision
