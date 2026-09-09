@@ -33,6 +33,7 @@ class ReadonlyCycle:
     def ingest(self, bin_lines=(), position_lines=()) -> ReadonlyCycleResult:
         duplicate = errors = bins = positions = 0
         for line in bin_lines:
+            key = None
             try:
                 payload = json.loads(line)
                 if "error" in payload:
@@ -48,9 +49,12 @@ class ReadonlyCycle:
                 ingest_bin_observation(self.connection, payload)
                 bins += 1
             except Exception:
+                if key is not None:
+                    self.dedup.release(key)
                 errors += 1
 
         for line in position_lines:
+            key = None
             try:
                 payload = json.loads(line)
                 if "error" in payload:
@@ -66,6 +70,8 @@ class ReadonlyCycle:
                 ingest_position_observation(self.connection, payload)
                 positions += 1
             except Exception:
+                if key is not None:
+                    self.dedup.release(key)
                 errors += 1
 
         self.connection.commit()
