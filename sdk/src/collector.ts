@@ -15,23 +15,29 @@ async function collect(poolAddress: string) {
   const pool = await DLMM.create(connection, new PublicKey(poolAddress), { cluster: "mainnet-beta" });
   const active = await pool.getActiveBin();
   const around = await pool.getBinsAroundActiveBin(left, right);
-  return {
-    source: "meteora-sdk",
-    observed_at: new Date().toISOString(),
-    pool_address: poolAddress,
-    active_bin_id: active.binId,
-    active_bin_price: active.price,
-    bins: around.bins.map((b: any) => ({
-      bin_id: b.binId, price: b.price,
-      x_amount: String(b.xAmount ?? "0"), y_amount: String(b.yAmount ?? "0")
-    }))
-  };
+  const observedAt = new Date().toISOString();
+
+  // Emit one normalized record per bin so the Python JSONL ingestor can persist
+  // each observation and compare it against the previous snapshot.
+  for (const b of around.bins as any[]) {
+    console.log(JSON.stringify({
+      source: "meteora-sdk",
+      observed_at: observedAt,
+      pool_address: poolAddress,
+      active_bin_id: active.binId,
+      active_bin_price: String(active.price),
+      bin_id: b.binId,
+      price: String(b.price),
+      x_amount_raw: String(b.xAmount ?? "0"),
+      y_amount_raw: String(b.yAmount ?? "0"),
+    }));
+  }
 }
 
 async function loop() {
   for (;;) {
     for (const address of pools) {
-      try { console.log(JSON.stringify(await collect(address))); }
+      try { await collect(address); }
       catch (error) {
         console.error(JSON.stringify({
           source: "meteora-sdk", observed_at: new Date().toISOString(),
