@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "collect": "tsx src/collector.ts",
-    "collect:positions": "tsx src/position_collector.ts"
+    "collect:positions": "tsx src/position_collector.ts",
+    "collect:bins": "tsx src/bin_collector.ts"
   },
   "dependencies": {
     "@meteora-ag/dlmm": "latest",
