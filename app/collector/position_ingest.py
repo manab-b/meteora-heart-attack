@@ -41,20 +41,8 @@ def _fee_sol_from_quotes(
 ) -> float | None:
     if x_decimals is None or y_decimals is None:
         return None
-    x_quote = latest_token_quote(
-        connection,
-        pool_address=pool_address,
-        token_side="x",
-        observed_at=observed_at,
-        max_age_seconds=max_quote_age_seconds,
-    )
-    y_quote = latest_token_quote(
-        connection,
-        pool_address=pool_address,
-        token_side="y",
-        observed_at=observed_at,
-        max_age_seconds=max_quote_age_seconds,
-    )
+    x_quote = latest_token_quote(connection, pool_address=pool_address, token_side="x", observed_at=observed_at, max_age_seconds=max_quote_age_seconds)
+    y_quote = latest_token_quote(connection, pool_address=pool_address, token_side="y", observed_at=observed_at, max_age_seconds=max_quote_age_seconds)
     if x_quote is None or y_quote is None:
         return None
     return quote_fee_delta(
@@ -75,20 +63,13 @@ def ingest_position_observation(
 ) -> dict[str, Any]:
     """Persist one SDK observation and derive only observable metrics.
 
-    Raw fee deltas remain authoritative. Fee SOL is populated only when both
-    token/SOL quotes exist in storage, are fresh, and SDK decimals are present.
+    Raw fee deltas remain authoritative. A reset/claim is not counted as newly
+    earned fee, even if the reset produces a fresh quoteable raw difference.
     """
     observed_at = str(payload["observed_at"])
     observed_ts = _timestamp(observed_at)
     snapshot = normalize_position(payload, observed_at, source="meteora-sdk")
-    insert_raw_snapshot(
-        connection,
-        source="meteora-sdk",
-        endpoint="position_collector",
-        pool_address=snapshot.pool_address,
-        payload=payload,
-        observed_at=observed_at,
-    )
+    insert_raw_snapshot(connection, source="meteora-sdk", endpoint="position_collector", pool_address=snapshot.pool_address, payload=payload, observed_at=observed_at)
 
     previous = connection.execute(
         """SELECT unclaimed_fee_x, unclaimed_fee_y, observed_at
@@ -102,19 +83,10 @@ def ingest_position_observation(
         (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
          deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
         VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-        (
-            snapshot.position_address,
-            snapshot.owner,
-            snapshot.pool_address,
-            snapshot.lower_bin_id,
-            snapshot.upper_bin_id,
-            snapshot.deposited_x,
-            snapshot.deposited_y,
-            snapshot.unclaimed_fee_x,
-            snapshot.unclaimed_fee_y,
-            snapshot.observed_at,
-            snapshot.source,
-        ),
+        (snapshot.position_address, snapshot.owner, snapshot.pool_address,
+         snapshot.lower_bin_id, snapshot.upper_bin_id, snapshot.deposited_x,
+         snapshot.deposited_y, snapshot.unclaimed_fee_x, snapshot.unclaimed_fee_y,
+         snapshot.observed_at, snapshot.source),
     )
 
     previous_analytics = _latest_analytics(connection, snapshot.position_address)
@@ -130,28 +102,24 @@ def ingest_position_observation(
     previous_survival = float(previous_analytics[1]) if previous_analytics else 0.0
     active_bin = payload.get("active_bin_id")
     if active_bin is not None and snapshot.lower_bin_id is not None and snapshot.upper_bin_id is not None:
-        survival = consecutive_range_survival(
-            previous_survival,
-            elapsed,
-            int(active_bin),
-            snapshot.lower_bin_id,
-            snapshot.upper_bin_id,
-        )
+        survival = consecutive_range_survival(previous_survival, elapsed, int(active_bin), snapshot.lower_bin_id, snapshot.upper_bin_id)
         in_range = snapshot.lower_bin_id <= int(active_bin) <= snapshot.upper_bin_id
     else:
         survival = 0.0
         in_range = None
 
-    fee_sol = _fee_sol_from_quotes(
-        connection,
-        pool_address=snapshot.pool_address,
-        observed_at=observed_ts,
-        fee_x_delta_raw=fee_x_delta,
-        fee_y_delta_raw=fee_y_delta,
-        x_decimals=payload.get("token_x_decimals"),
-        y_decimals=payload.get("token_y_decimals"),
-        max_quote_age_seconds=max_quote_age_seconds,
-    )
+    fee_sol = None
+    if not reset_or_claim:
+        fee_sol = _fee_sol_from_quotes(
+            connection,
+            pool_address=snapshot.pool_address,
+            observed_at=observed_ts,
+            fee_x_delta_raw=fee_x_delta,
+            fee_y_delta_raw=fee_y_delta,
+            x_decimals=payload.get("token_x_decimals"),
+            y_decimals=payload.get("token_y_decimals"),
+            max_quote_age_seconds=max_quote_age_seconds,
+        )
 
     insert_position_analytics(
         connection,
