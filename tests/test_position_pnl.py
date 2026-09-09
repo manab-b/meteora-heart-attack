@@ -20,9 +20,10 @@ def test_position_il_is_separate_from_fees():
         1,
         fees_usd=10,
     )
-    assert result.hodl_value_usd == 200
+    # HODL keeps the original token quantities while repricing them at current prices.
+    assert result.hodl_value_usd == 220
     assert result.current_value_usd == 200
-    assert result.il_pct == pytest.approx(0.0)
+    assert result.il_pct == pytest.approx((200 / 220 - 1.0) * 100.0)
     assert result.net_return_pct == pytest.approx(5.0)
 
 
