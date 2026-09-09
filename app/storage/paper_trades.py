@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from app.paper.engine import PaperEngine, PaperPosition
+
 
 _CREATE_POSITIONS = """
 CREATE TABLE IF NOT EXISTS paper_positions (
@@ -50,7 +52,7 @@ def init_paper_trade_schema(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
-def upsert_paper_position(connection: sqlite3.Connection, position: Any) -> None:
+def upsert_paper_position(connection: sqlite3.Connection, position: PaperPosition) -> None:
     connection.execute(
         """
         INSERT INTO paper_positions (
@@ -80,25 +82,12 @@ def upsert_paper_position(connection: sqlite3.Connection, position: Any) -> None
             current_y_price_usd=excluded.current_y_price_usd
         """,
         (
-            position.id,
-            position.pool_address,
-            position.entry_time,
-            position.entry_price,
-            position.min_price,
-            position.max_price,
-            position.deposit_sol,
-            position.fee_sol,
-            position.claimed_sol,
-            position.status,
-            position.out_of_range_since,
-            position.entry_x_amount,
-            position.entry_y_amount,
-            position.current_x_amount,
-            position.current_y_amount,
-            position.entry_x_price_usd,
-            position.entry_y_price_usd,
-            position.current_x_price_usd,
-            position.current_y_price_usd,
+            position.id, position.pool_address, position.entry_time, position.entry_price,
+            position.min_price, position.max_price, position.deposit_sol, position.fee_sol,
+            position.claimed_sol, position.status, position.out_of_range_since,
+            position.entry_x_amount, position.entry_y_amount, position.current_x_amount,
+            position.current_y_amount, position.entry_x_price_usd, position.entry_y_price_usd,
+            position.current_x_price_usd, position.current_y_price_usd,
         ),
     )
 
@@ -112,23 +101,57 @@ def record_paper_event(connection: sqlite3.Connection, event: dict[str, Any]) ->
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            event["timestamp"],
-            event["action"],
-            event["position_id"],
-            event["pool_address"],
-            event["price"],
-            event["fee_sol"],
-            event["claimed_sol"],
-            event["status"],
+            event["timestamp"], event["action"], event["position_id"],
+            event["pool_address"], event["price"], event["fee_sol"],
+            event["claimed_sol"], event["status"],
         ),
     )
     connection.commit()
     return cursor.rowcount == 1
 
 
+def persist_engine(connection: sqlite3.Connection, engine: PaperEngine) -> None:
+    for position in engine.positions.values():
+        upsert_paper_position(connection, position)
+    for event in engine.events:
+        record_paper_event(connection, event)
+    engine.events.clear()
+
+
+def load_paper_engine(
+    connection: sqlite3.Connection,
+    *,
+    claim_threshold_sol: float = 0.02,
+    out_of_range_seconds: int = 20,
+) -> PaperEngine:
+    engine = PaperEngine(
+        claim_threshold_sol=claim_threshold_sol,
+        out_of_range_seconds=out_of_range_seconds,
+    )
+    rows = connection.execute(
+        "SELECT * FROM paper_positions ORDER BY entry_time, position_id"
+    ).fetchall()
+    columns = [row[1] for row in connection.execute("PRAGMA table_info(paper_positions)").fetchall()]
+    for row in rows:
+        values = dict(zip(columns, row))
+        engine.positions[values["position_id"]] = PaperPosition(
+            id=values["position_id"], pool_address=values["pool_address"],
+            entry_time=values["entry_time"], entry_price=values["entry_price"],
+            min_price=values["min_price"], max_price=values["max_price"],
+            deposit_sol=values["deposit_sol"], fee_sol=values["fee_sol"],
+            claimed_sol=values["claimed_sol"], status=values["status"],
+            out_of_range_since=values["out_of_range_since"],
+            entry_x_amount=values["entry_x_amount"], entry_y_amount=values["entry_y_amount"],
+            current_x_amount=values["current_x_amount"], current_y_amount=values["current_y_amount"],
+            entry_x_price_usd=values["entry_x_price_usd"], entry_y_price_usd=values["entry_y_price_usd"],
+            current_x_price_usd=values["current_x_price_usd"], current_y_price_usd=values["current_y_price_usd"],
+        )
+    return engine
+
+
 def load_paper_positions(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = connection.execute(
         "SELECT * FROM paper_positions ORDER BY entry_time, position_id"
     ).fetchall()
-    columns = [column[0] for column in connection.execute("PRAGMA table_info(paper_positions)").fetchall()]
+    columns = [column[1] for column in connection.execute("PRAGMA table_info(paper_positions)").fetchall()]
     return [dict(zip(columns, row)) for row in rows]
