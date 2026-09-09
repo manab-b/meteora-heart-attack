@@ -42,7 +42,7 @@ class ReadonlyCycle:
                 key = bin_observation_key(
                     str(payload["pool_address"]), int(payload["bin_id"]), ts
                 )
-                if not self.dedup.claim("bin:" + key, ts):
+                if not self.dedup.claim(key, ts):
                     duplicate += 1
                     continue
                 ingest_bin_observation(self.connection, payload)
@@ -60,7 +60,7 @@ class ReadonlyCycle:
                 key = position_observation_key(
                     str(payload["pool_address"]), str(payload["position_address"]), ts
                 )
-                if not self.dedup.claim("position:" + key, ts):
+                if not self.dedup.claim(key, ts):
                     duplicate += 1
                     continue
                 ingest_position_observation(self.connection, payload)
