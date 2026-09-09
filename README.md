@@ -1,31 +1,30 @@
 # Meteora Heart Attack
 
-Paper-only research engine for studying concentrated liquidity strategies on Meteora DLMM.
+Read-only research and paper-trading engine for Meteora DLMM pools.
 
-## Scope
+## Pipeline
 
-- Public Meteora data collection
-- Paper positions only
-- Bin/range tracking
-- Fee accumulation and fee velocity
-- Exit/range-out analysis
-- SQLite persistence
-- Replay and statistical analysis
+REST pool discovery -> SDK/RPC bin observations -> position snapshots -> fee deltas -> range/drain/IL metrics -> paper execution -> opportunity ranking.
 
-## Safety
+No private keys or transaction signing are required.
 
-This repository does not implement wallet signing, swaps, LP deposits/withdrawals, transfers, or live execution.
+## Principles
 
-## Development roadmap
+- Do not infer position-level fees from pool-wide volume.
+- Do not fabricate unavailable fields.
+- Keep raw observations and derived metrics separate.
+- Use paper execution until the dataset validates the strategy.
 
-1. Meteora API/data contract
-2. Pool scanner
-3. Tick collector
-4. Paper position engine
-5. Fee/bin/range analytics
-6. Replay
-7. Dashboard
+## Current modules
 
-## Current status
+- `app/meteora`: REST pool discovery.
+- `app/collector`: observation models and REST collection.
+- `sdk`: read-only Meteora DLMM SDK collector.
+- `app/positions`: position snapshot and fee-delta models.
+- `app/metrics`: fee velocity, range, drain, IL and health scoring.
+- `app/paper`: paper position engine.
+- `app/storage`: SQLite persistence.
 
-Phase 0: repository initialized.
+## Research target
+
+Minimum dataset: 50 paper trades. Preferred: 200+ observations per pool and multiple pool/token categories. Primary outputs are median claimed SOL, fee SOL/min, range survival, liquidity-drain rate, IL, and drawdown—not win rate alone.
