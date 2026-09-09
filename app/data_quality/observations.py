@@ -7,9 +7,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ObservationQualityConfig:
-    # A single observation is sufficient to start paper simulation; research
-    # qualification still happens later through the robust data/research gates.
-    min_observations: int = 1
+    min_observations: int = 5
     max_gap_seconds: float = 300.0
     require_in_range: bool = True
 
@@ -38,13 +36,11 @@ def assess_observation_quality(
            LIMIT ?""",
         (pool_address, max(config.min_observations, 2)),
     ).fetchall()
-
     reasons: list[str] = []
     count = len(rows)
     latest_timestamp = float(rows[0][0]) if rows else None
     if count < config.min_observations:
         reasons.append("INSUFFICIENT_OBSERVATIONS")
-
     max_gap: float | None = None
     if len(rows) >= 2:
         timestamps = [float(row[0]) for row in rows]
@@ -52,7 +48,6 @@ def assess_observation_quality(
         max_gap = max(gaps) if gaps else 0.0
         if max_gap > config.max_gap_seconds:
             reasons.append("TIMESTAMP_GAP")
-
     for row in rows:
         timestamp, price, volume_usd, fee_velocity, drain_score, survival, in_range, bins = row
         values = (timestamp, price, volume_usd, fee_velocity, drain_score, survival, bins)
@@ -65,10 +60,8 @@ def assess_observation_quality(
         if int(bins) <= 0:
             reasons.append("MISSING_ACTIVE_BINS")
             break
-
     if config.require_in_range and rows and not bool(rows[0][6]):
         reasons.append("LATEST_OUT_OF_RANGE")
-
     return ObservationQuality(
         ok=not reasons,
         reasons=tuple(dict.fromkeys(reasons)),
