@@ -3,22 +3,15 @@ from dataclasses import dataclass
 import time
 
 @dataclass
-class RuntimeHealth:
-    cycles: int = 0
-    failures: int = 0
-    last_success_epoch: float | None = None
-    last_error: str | None = None
-
-    def success(self) -> None:
-        self.cycles += 1
-        self.last_success_epoch = time.time()
-        self.last_error = None
-
-    def failure(self, error: Exception) -> None:
-        self.cycles += 1
-        self.failures += 1
-        self.last_error = f"{type(error).__name__}: {error}"
-
+class Health:
+    started_at:float
+    cycles:int=0
+    observations:int=0
+    errors:int=0
+    last_success_at:float|None=None
+    def success(self,n:int):
+        self.cycles+=1; self.observations+=n; self.last_success_at=time.time()
+    def error(self):
+        self.cycles+=1; self.errors+=1
     @property
-    def healthy(self) -> bool:
-        return self.failures == 0 or self.last_success_epoch is not None
+    def error_rate(self): return self.errors/self.cycles if self.cycles else 0.0
