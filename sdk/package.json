@@ -1,0 +1,9 @@
+{
+  "name": "meteora-heart-attack-sdk",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@meteora-ag/dlmm": "latest",
+    "@solana/web3.js": "latest"
+  }
+}
