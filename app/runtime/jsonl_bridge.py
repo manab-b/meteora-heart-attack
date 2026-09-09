@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import subprocess
 import sqlite3
 from dataclasses import dataclass
@@ -12,8 +13,7 @@ class SdkRunResult:
 
 def run_sdk_once(connection: sqlite3.Connection, sdk_dir: str, rpc_url: str, pools: list[str]) -> SdkRunResult:
     cmd = ["npm", "run", "collect", "--", "--once", *pools]
-    proc = subprocess.run(cmd, cwd=sdk_dir, env={"RPC_URL": rpc_url}, text=True,
-                          capture_output=True, check=False)
-    lines = proc.stdout.splitlines()
-    cycle = ReadonlyCycle(connection).ingest(bin_lines=lines)
+    env = os.environ.copy(); env["RPC_URL"] = rpc_url
+    proc = subprocess.run(cmd, cwd=sdk_dir, env=env, text=True, capture_output=True, check=False)
+    cycle = ReadonlyCycle(connection).ingest(bin_lines=proc.stdout.splitlines())
     return SdkRunResult(cycle, proc.returncode, proc.stderr)
