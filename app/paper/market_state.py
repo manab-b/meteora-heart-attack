@@ -3,19 +3,26 @@ from dataclasses import dataclass
 
 @dataclass
 class MarketState:
-    last_price: float | None = None
+    price: float
+    previous_price: float|None = None
     out_of_range_seconds: int = 0
-    cumulative_volume_usd: float = 0.0
-    cumulative_fee_usd: float = 0.0
+    in_range_volume_usd: float = 0.0
+    total_volume_usd: float = 0.0
+    fee_usd: float = 0.0
     liquidity_usd: float = 0.0
+    liquidity_change_pct: float = 0.0
     rug_flags: tuple[str,...] = ()
 
-    def update(self, *, price: float, in_range: bool, volume_usd: float,
-               fee_usd: float=0.0, liquidity_usd: float=0.0,
-               interval_seconds: int=30, rug_flags: tuple[str,...]=()) -> None:
-        self.last_price=price
-        self.out_of_range_seconds = 0 if in_range else self.out_of_range_seconds + interval_seconds
-        self.cumulative_volume_usd += max(0.0, volume_usd)
-        self.cumulative_fee_usd += max(0.0, fee_usd)
-        self.liquidity_usd=liquidity_usd
-        self.rug_flags=rug_flags
+def update_state(state: MarketState, *, price: float, min_price: float, max_price: float,
+                 volume_usd: float, fee_usd: float=0.0, liquidity_usd: float=0.0,
+                 interval_seconds: int=30, drain_threshold_pct: float=-40.0) -> MarketState:
+    if price <= 0 or volume_usd < 0: raise ValueError("invalid market tick")
+    in_range=min_price <= price <= max_price
+    out_seconds=0 if in_range else state.out_of_range_seconds+interval_seconds
+    in_vol=state.in_range_volume_usd+(volume_usd if in_range else 0.0)
+    change=0.0
+    if state.liquidity_usd>0 and liquidity_usd>0: change=(liquidity_usd/state.liquidity_usd-1)*100
+    flags=list(state.rug_flags)
+    if change <= drain_threshold_pct and "LIQUIDITY_DRAIN" not in flags: flags.append("LIQUIDITY_DRAIN")
+    return MarketState(price,state.price,out_seconds,in_vol,state.total_volume_usd+volume_usd,
+                       state.fee_usd+fee_usd,liquidity_usd,change,tuple(flags))
