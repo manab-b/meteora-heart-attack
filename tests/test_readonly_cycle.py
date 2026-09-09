@@ -1,5 +1,6 @@
 import sqlite3
 
+import app.runtime.readonly_cycle as readonly_cycle
 from app.runtime.readonly_cycle import ReadonlyCycle
 from app.storage.bin_drain import init_bin_drain_schema
 from app.storage.bin_liquidity import init_bin_liquidity_schema
@@ -38,3 +39,29 @@ def test_readonly_cycle_rejects_malformed_records_without_stopping_valid_records
     result = cycle.ingest(["not-json", valid])
     assert result.bin_observations == 1
     assert result.errors == 1
+
+
+def test_readonly_cycle_releases_claim_when_persistence_fails(monkeypatch):
+    conn = _connection()
+    cycle = ReadonlyCycle(conn)
+    valid = '{"pool_address":"P","observed_at":"2026-09-10T00:00:00Z","bin_id":1,"active_bin_id":1,"price":"1","x_amount_raw":"10","y_amount_raw":"20"}'
+
+    original = readonly_cycle.ingest_bin_observation
+    calls = {"count": 0}
+
+    def flaky(connection, payload):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary persistence failure")
+        return original(connection, payload)
+
+    monkeypatch.setattr(readonly_cycle, "ingest_bin_observation", flaky)
+
+    failed = cycle.ingest([valid])
+    retried = cycle.ingest([valid])
+
+    assert failed.bin_observations == 0
+    assert failed.errors == 1
+    assert retried.bin_observations == 1
+    assert retried.errors == 0
+    assert conn.execute("SELECT COUNT(*) FROM bin_liquidity_snapshots").fetchone()[0] == 1
