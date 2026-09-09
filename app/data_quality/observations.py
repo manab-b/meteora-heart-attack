@@ -7,7 +7,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ObservationQualityConfig:
-    min_observations: int = 5
+    # A single observation is sufficient to start paper simulation; research
+    # qualification still happens later through the robust data/research gates.
+    min_observations: int = 1
     max_gap_seconds: float = 300.0
     require_in_range: bool = True
 
@@ -40,7 +42,6 @@ def assess_observation_quality(
     reasons: list[str] = []
     count = len(rows)
     latest_timestamp = float(rows[0][0]) if rows else None
-
     if count < config.min_observations:
         reasons.append("INSUFFICIENT_OBSERVATIONS")
 
