@@ -20,8 +20,8 @@ def normalize_position(data: dict[str, Any], observed_at: str, source: str = "me
 
     fee_x = required("unclaimed_fee_x", "fee_x", "feeX", "fee_x_raw")
     fee_y = required("unclaimed_fee_y", "fee_y", "feeY", "fee_y_raw")
-    deposited_x = data.get("deposited_x", data.get("total_x_amount", data.get("total_x_amount_raw", "0")))
-    deposited_y = data.get("deposited_y", data.get("total_y_amount", data.get("total_y_amount_raw", "0")))
+    deposited_x = required("deposited_x", "total_x_amount", "total_x_amount_raw")
+    deposited_y = required("deposited_y", "total_y_amount", "total_y_amount_raw")
     return PositionSnapshot(
         position_address=str(required("position_address", "address", "publicKey")),
         owner=str(required("owner", "owner_address", "ownerPublicKey")),
