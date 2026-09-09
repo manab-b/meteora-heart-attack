@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 from app.positions.store import init_position_schema
+from app.storage.bin_liquidity import init_bin_liquidity_schema
 from app.storage.fee_deltas import init_fee_delta_schema
 from app.storage.observations import init_observation_schema
 from app.storage.position_analytics import init_position_analytics_schema
@@ -17,3 +18,4 @@ def initialize_database(connection: sqlite3.Connection) -> None:
     init_position_analytics_schema(connection)
     init_raw_schema(connection)
     init_token_quote_schema(connection)
+    init_bin_liquidity_schema(connection)
