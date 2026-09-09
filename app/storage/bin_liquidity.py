@@ -35,9 +35,6 @@ def insert_bin_liquidity(
     observed_at: float,
     source: str,
 ) -> None:
-    if int(bin_id) < 0 and int(active_bin_id) < 0:
-        # Negative bin IDs are valid on DLMM; this branch intentionally does nothing.
-        pass
     connection.execute(
         """INSERT INTO bin_liquidity_snapshots
         (pool_address,bin_id,active_bin_id,price,x_amount_raw,y_amount_raw,observed_at,source)
