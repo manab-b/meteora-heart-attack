@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from app.paper.engine import PaperEngine
 from app.scanner.live import scan_paper_opportunities
+from app.storage.paper_trades import persist_engine
 from app.strategy.entry import EntryConfig, should_enter
 from app.strategy.exit import ExitConfig, should_exit
 
@@ -38,6 +39,7 @@ def evaluate_paper_entries(
 
 def evaluate_paper_exit(
     *,
+    pool_address: str = "",
     in_range: bool,
     out_of_range_seconds: float,
     drain_score: float,
@@ -52,7 +54,7 @@ def evaluate_paper_exit(
         exit_config,
     )
     if should:
-        return PaperDecision("", "EXIT", reason)
+        return PaperDecision(pool_address, "EXIT", reason)
     return None
 
 
@@ -82,4 +84,26 @@ def apply_entry_decisions(
             timestamp=timestamp,
         )
         opened.append(decision.pool_address)
+    return opened
+
+
+def apply_entry_decisions_persisted(
+    connection: sqlite3.Connection,
+    engine: PaperEngine,
+    decisions: list[PaperDecision],
+    *,
+    price_by_pool: dict[str, float],
+    range_by_pool: dict[str, tuple[float, float]],
+    deposit_sol: float = 1.0,
+    timestamp: float | None = None,
+) -> list[str]:
+    opened = apply_entry_decisions(
+        engine,
+        decisions,
+        price_by_pool=price_by_pool,
+        range_by_pool=range_by_pool,
+        deposit_sol=deposit_sol,
+        timestamp=timestamp,
+    )
+    persist_engine(connection, engine)
     return opened
