@@ -6,6 +6,8 @@ export type PositionObservation = {
   observed_at: string;
   pool_address: string;
   owner: string;
+  active_bin_id: number;
+  active_bin_price: string;
   position_address: string;
   lower_bin_id: number;
   upper_bin_id: number;
@@ -47,6 +49,8 @@ export async function collectPositions(
   const observedAt = new Date().toISOString();
   const tokenXDecimals = pool.tokenX.decimal ?? null;
   const tokenYDecimals = pool.tokenY.decimal ?? null;
+  const activeBinId = asNumber(result.activeBin.binId, "activeBin.binId");
+  const activeBinPrice = asString(result.activeBin.price);
 
   return result.userPositions.map((position: any) => {
     const data = position.positionData;
@@ -55,6 +59,8 @@ export async function collectPositions(
       observed_at: observedAt,
       pool_address: poolAddress,
       owner: ownerAddress,
+      active_bin_id: activeBinId,
+      active_bin_price: activeBinPrice,
       position_address: position.publicKey.toString(),
       lower_bin_id: asNumber(data.lowerBinId, "lowerBinId"),
       upper_bin_id: asNumber(data.upperBinId, "upperBinId"),
