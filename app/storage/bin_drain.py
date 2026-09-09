@@ -18,7 +18,8 @@ def init_bin_drain_schema(connection: sqlite3.Connection) -> None:
             active_bin_moved INTEGER NOT NULL,
             depletion_ratio REAL NOT NULL,
             score REAL NOT NULL,
-            source TEXT NOT NULL
+            source TEXT NOT NULL,
+            UNIQUE(pool_address, bin_id, observed_at)
         );
         CREATE INDEX IF NOT EXISTS idx_bin_drain_events_time
         ON bin_drain_events(pool_address, bin_id, observed_at);
@@ -37,6 +38,17 @@ def record_bin_drain(
     observed_at: float,
     source: str,
 ) -> bool:
+    existing = connection.execute(
+        """
+        SELECT 1 FROM bin_drain_events
+        WHERE pool_address = ? AND bin_id = ? AND observed_at = ?
+        LIMIT 1
+        """,
+        (pool_address, bin_id, observed_at),
+    ).fetchone()
+    if existing is not None:
+        return False
+
     row = connection.execute(
         """
         SELECT active_bin_id, x_amount_raw, y_amount_raw, observed_at
@@ -69,7 +81,7 @@ def record_bin_drain(
     event = compare_bin_snapshots(previous, current)
     connection.execute(
         """
-        INSERT INTO bin_drain_events
+        INSERT OR IGNORE INTO bin_drain_events
         (pool_address, bin_id, previous_observed_at, observed_at, elapsed_seconds,
          active_bin_moved, depletion_ratio, score, source)
         VALUES (?,?,?,?,?,?,?,?,?)
@@ -86,4 +98,4 @@ def record_bin_drain(
             source,
         ),
     )
-    return True
+    return connection.execute("SELECT changes()").fetchone()[0] == 1
