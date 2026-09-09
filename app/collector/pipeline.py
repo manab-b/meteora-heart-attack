@@ -1,17 +1,22 @@
 from __future__ import annotations
+
 import sqlite3
-from app.collector.quality import validate_snapshot
+from datetime import datetime
+
 from app.collector.schema import CollectorBatch
-from app.positions.store import insert_position
 from app.positions.model import PositionSnapshot
+from app.positions.store import insert_position
 from app.storage.observations import insert_observation
+
 
 class CollectorPipeline:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
     def persist_position(self, snapshot: PositionSnapshot) -> bool:
-        if not validate_snapshot(1.0, snapshot.observed_at).valid:
+        try:
+            datetime.fromisoformat(snapshot.observed_at.replace("Z", "+00:00"))
+        except ValueError:
             return False
         insert_position(self.connection, snapshot)
         return True
