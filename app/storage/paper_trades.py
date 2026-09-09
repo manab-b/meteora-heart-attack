@@ -23,7 +23,6 @@ def ensure_paper_trades(conn: sqlite3.Connection) -> None:
           metadata_json TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_paper_trades_strategy ON paper_trades(strategy_key);
-
         CREATE TABLE IF NOT EXISTS paper_positions(
           position_id TEXT PRIMARY KEY,
           pool_address TEXT NOT NULL,
@@ -117,9 +116,10 @@ def load_paper_engine(
     ensure_paper_trades(conn)
     engine = PaperEngine(claim_threshold_sol=claim_threshold_sol, out_of_range_seconds=out_of_range_seconds)
     rows = conn.execute(
-        "SELECT position_id,pool_address,entry_time,entry_price,min_price,max_price,deposit_sol,fee_sol,
-         claimed_sol,status,out_of_range_since,entry_x_amount,entry_y_amount,current_x_amount,current_y_amount,
-         entry_x_price_usd,entry_y_price_usd,current_x_price_usd,current_y_price_usd FROM paper_positions"
+        """SELECT position_id,pool_address,entry_time,entry_price,min_price,max_price,deposit_sol,fee_sol,
+        claimed_sol,status,out_of_range_since,entry_x_amount,entry_y_amount,current_x_amount,current_y_amount,
+        entry_x_price_usd,entry_y_price_usd,current_x_price_usd,current_y_price_usd
+        FROM paper_positions"""
     ).fetchall()
     for row in rows:
         p = engine.open(row[0], row[1], row[3], row[4], row[5], row[6], timestamp=row[2],
