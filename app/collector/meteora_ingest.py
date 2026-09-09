@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.collector.meteora_api import MeteoraDataApiClient
+from app.collector.pool_state import normalize_bin_liquidity
+from app.storage.bin_snapshot import persist_bin_observations
 from app.storage.raw import insert_raw_snapshot
 
 
@@ -34,7 +36,11 @@ def ingest_pool_readonly(
         ),
         ("volume_history", lambda: client.get_volume_history(pool_address)),
     ):
-        endpoint = f"/pools/{pool_address}" if endpoint_name == "pool" else f"/pools/{pool_address}/{endpoint_name.replace('_', '/')}"
+        endpoint = (
+            f"/pools/{pool_address}"
+            if endpoint_name == "pool"
+            else f"/pools/{pool_address}/{endpoint_name.replace('_', '/')}"
+        )
         try:
             payload = fetch()
         except Exception as exc:
@@ -57,5 +63,28 @@ def ingest_pool_readonly(
             observed_at=observed_at,
         )
         result[endpoint_name] = payload
+
+    # Some deployments expose bin state directly in the pool payload. When present,
+    # normalize and persist it; otherwise leave the raw pool payload untouched and
+    # let an RPC/SDK collector supply bins later. This prevents fabricated liquidity.
+    pool_payload = result["pool"]
+    try:
+        bins = normalize_bin_liquidity(
+            pool_address=pool_address,
+            payload=pool_payload,
+            observed_at=observed_at,
+        )
+    except ValueError:
+        bins = []
+    if bins:
+        persist_bin_observations(
+            connection,
+            bins,
+            source="meteora-data-api",
+            raw_payload={"pool": pool_payload, "bins": [row.__dict__ for row in bins]},
+        )
+        result["bin_observations"] = bins
+    else:
+        result["bin_observations"] = []
 
     return result
