@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import DLMM from "@meteora-ag/dlmm";
 
 export type PositionObservation = {
@@ -35,7 +35,7 @@ function asNumber(value: unknown, field: string): number {
  * claim, swap, or liquidity mutation is used here.
  */
 export async function collectPositions(
-  connection: ConstructorParameters<typeof DLMM>[0],
+  connection: Connection,
   poolAddress: string,
   ownerAddress: string,
 ): Promise<PositionObservation[]> {
