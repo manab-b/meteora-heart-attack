@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from app.data_quality.observations import ObservationQualityConfig, assess_observation_quality
 from app.paper.engine import PaperEngine
 from app.scanner.live import scan_paper_opportunities
 from app.storage.paper_trades import persist_engine
@@ -22,10 +23,18 @@ def evaluate_paper_entries(
     pool_addresses: list[str],
     *,
     entry_config: EntryConfig = EntryConfig(),
+    quality_config: ObservationQualityConfig = ObservationQualityConfig(),
     limit: int = 20,
 ) -> list[PaperDecision]:
     decisions: list[PaperDecision] = []
     for candidate in scan_paper_opportunities(connection, pool_addresses, limit=limit):
+        quality = assess_observation_quality(
+            connection,
+            candidate.pool_address,
+            config=quality_config,
+        )
+        if not quality.ok:
+            continue
         if should_enter(
             candidate.volume_usd,
             candidate.fee_sol_per_minute,
