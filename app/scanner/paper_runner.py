@@ -23,16 +23,13 @@ def evaluate_paper_entries(
     pool_addresses: list[str],
     *,
     entry_config: EntryConfig = EntryConfig(),
-    quality_config: ObservationQualityConfig = ObservationQualityConfig(),
+    quality_config: ObservationQualityConfig = ObservationQualityConfig(min_observations=1),
     limit: int = 20,
 ) -> list[PaperDecision]:
+    """Evaluate paper entries; long-history qualification remains a research gate."""
     decisions: list[PaperDecision] = []
     for candidate in scan_paper_opportunities(connection, pool_addresses, limit=limit):
-        quality = assess_observation_quality(
-            connection,
-            candidate.pool_address,
-            config=quality_config,
-        )
+        quality = assess_observation_quality(connection, candidate.pool_address, config=quality_config)
         if not quality.ok:
             continue
         if should_enter(
@@ -46,124 +43,62 @@ def evaluate_paper_entries(
     return decisions
 
 
-def evaluate_paper_exit(
-    *,
-    pool_address: str = "",
-    in_range: bool,
-    out_of_range_seconds: float,
-    drain_score: float,
-    fee_velocity_sol_min: float,
-    exit_config: ExitConfig = ExitConfig(),
-) -> PaperDecision | None:
-    should, reason = should_exit(
-        in_range,
-        out_of_range_seconds,
-        drain_score,
-        fee_velocity_sol_min,
-        exit_config,
-    )
-    if should:
-        return PaperDecision(pool_address, "EXIT", reason)
-    return None
+def evaluate_paper_exit(*, pool_address: str = "", in_range: bool, out_of_range_seconds: float,
+                        drain_score: float, fee_velocity_sol_min: float,
+                        exit_config: ExitConfig = ExitConfig()) -> PaperDecision | None:
+    should, reason = should_exit(in_range, out_of_range_seconds, drain_score, fee_velocity_sol_min, exit_config)
+    return PaperDecision(pool_address, "EXIT", reason) if should else None
 
 
-def apply_entry_decisions(
-    engine: PaperEngine,
-    decisions: list[PaperDecision],
-    *,
-    price_by_pool: dict[str, float],
-    range_by_pool: dict[str, tuple[float, float]],
-    deposit_sol: float = 1.0,
-    timestamp: float | None = None,
-) -> list[str]:
+def apply_entry_decisions(engine: PaperEngine, decisions: list[PaperDecision], *,
+                          price_by_pool: dict[str, float], range_by_pool: dict[str, tuple[float, float]],
+                          deposit_sol: float = 1.0, timestamp: float | None = None) -> list[str]:
     opened: list[str] = []
     for decision in decisions:
         if decision.action != "ENTER" or any(
-            position.pool_address == decision.pool_address and position.status == "OPEN"
-            for position in engine.positions.values()
+            p.pool_address == decision.pool_address and p.status == "OPEN" for p in engine.positions.values()
         ):
             continue
         if decision.pool_address not in price_by_pool or decision.pool_address not in range_by_pool:
             continue
         lower, upper = range_by_pool[decision.pool_address]
-        engine.open(
-            position_id=f"paper:{decision.pool_address}:{timestamp or 0}",
-            pool_address=decision.pool_address,
-            price=price_by_pool[decision.pool_address],
-            min_price=lower,
-            max_price=upper,
-            deposit_sol=deposit_sol,
-            timestamp=timestamp,
-        )
+        engine.open(f"paper:{decision.pool_address}:{timestamp or 0}", decision.pool_address,
+                    price_by_pool[decision.pool_address], lower, upper, deposit_sol, timestamp=timestamp)
         opened.append(decision.pool_address)
     return opened
 
 
-def apply_entry_decisions_persisted(
-    connection: sqlite3.Connection,
-    engine: PaperEngine,
-    decisions: list[PaperDecision],
-    *,
-    price_by_pool: dict[str, float],
-    range_by_pool: dict[str, tuple[float, float]],
-    deposit_sol: float = 1.0,
-    timestamp: float | None = None,
-) -> list[str]:
-    opened = apply_entry_decisions(
-        engine,
-        decisions,
-        price_by_pool=price_by_pool,
-        range_by_pool=range_by_pool,
-        deposit_sol=deposit_sol,
-        timestamp=timestamp,
-    )
+def apply_entry_decisions_persisted(connection: sqlite3.Connection, engine: PaperEngine,
+                                    decisions: list[PaperDecision], *,
+                                    price_by_pool: dict[str, float], range_by_pool: dict[str, tuple[float, float]],
+                                    deposit_sol: float = 1.0, timestamp: float | None = None) -> list[str]:
+    opened = apply_entry_decisions(engine, decisions, price_by_pool=price_by_pool,
+                                    range_by_pool=range_by_pool, deposit_sol=deposit_sol, timestamp=timestamp)
     persist_engine(connection, engine)
     return opened
 
 
-def apply_paper_tick(
-    connection: sqlite3.Connection,
-    engine: PaperEngine,
-    position_id: str,
-    *,
-    price: float,
-    fee_delta_sol: float,
-    timestamp: float | None = None,
-    in_range: bool | None = None,
-    drain_score: float = 0.0,
-    fee_velocity_sol_min: float = 0.0,
-    exit_config: ExitConfig = ExitConfig(),
-    x_amount: float | None = None,
-    y_amount: float | None = None,
-    x_price_usd: float | None = None,
-    y_price_usd: float | None = None,
-) -> PaperDecision | None:
+def apply_paper_tick(connection: sqlite3.Connection, engine: PaperEngine, position_id: str, *,
+                     price: float, fee_delta_sol: float, timestamp: float | None = None,
+                     in_range: bool | None = None, drain_score: float = 0.0,
+                     fee_velocity_sol_min: float = 0.0, exit_config: ExitConfig = ExitConfig(),
+                     x_amount: float | None = None, y_amount: float | None = None,
+                     x_price_usd: float | None = None, y_price_usd: float | None = None) -> PaperDecision | None:
     position = engine.positions[position_id]
     if position.status != "OPEN":
         return None
-    engine.tick(
-        position_id,
-        price,
-        fee_delta_sol,
-        timestamp,
-        x_amount=x_amount,
-        y_amount=y_amount,
-        x_price_usd=x_price_usd,
-        y_price_usd=y_price_usd,
-    )
+    engine.tick(position_id, price, fee_delta_sol, timestamp,
+                x_amount=x_amount, y_amount=y_amount,
+                x_price_usd=x_price_usd, y_price_usd=y_price_usd)
     if in_range is None:
         in_range = position.min_price <= price <= position.max_price
     out_of_range_seconds = 0.0
     if not in_range and position.out_of_range_since is not None and timestamp is not None:
         out_of_range_seconds = max(0.0, timestamp - position.out_of_range_since)
-    decision = evaluate_paper_exit(
-        pool_address=position.pool_address,
-        in_range=in_range,
-        out_of_range_seconds=out_of_range_seconds,
-        drain_score=drain_score,
-        fee_velocity_sol_min=fee_velocity_sol_min,
-        exit_config=exit_config,
-    )
+    decision = evaluate_paper_exit(pool_address=position.pool_address, in_range=in_range,
+                                   out_of_range_seconds=out_of_range_seconds,
+                                   drain_score=drain_score, fee_velocity_sol_min=fee_velocity_sol_min,
+                                   exit_config=exit_config)
     if decision is not None and position.status == "OPEN":
         engine.close(position_id, price, decision.reason, timestamp)
     persist_engine(connection, engine)
