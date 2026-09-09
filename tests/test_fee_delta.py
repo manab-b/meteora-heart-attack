@@ -66,8 +66,8 @@ def test_fee_observation_storage_returns_latest_row():
 
     latest = latest_fee_observation(connection, "position-1")
     assert latest is not None
-    assert latest["observed_at"] == 130.0
-    assert latest["fee_sol"] == pytest.approx(0.6)
+    assert latest[2] == 130.0
+    assert latest[5] == pytest.approx(0.6)
 
 
 def test_fee_observation_rejects_negative_values():
