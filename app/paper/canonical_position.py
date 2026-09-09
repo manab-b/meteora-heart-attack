@@ -17,8 +17,8 @@ class CanonicalPositionState:
     in_range: bool | None
     range_survival_seconds: float
     drain_score: float | None
-    x_amount: float
-    y_amount: float
+    x_amount: float | None
+    y_amount: float | None
     x_price_sol: float | None
     y_price_sol: float | None
     x_decimals: int | None
@@ -131,7 +131,9 @@ def load_canonical_position_state(
     """Reconstruct one position state strictly from persisted observations.
 
     This is deliberately read-only. Missing facts make MTM ineligible rather
-    than being filled with defaults or estimates.
+    than being filled with defaults or estimates. Fee claim/reset state only
+    affects fee accounting; it must not invalidate the independently observable
+    position mark-to-market.
     """
     row = _latest_position(connection, position_address)
     if row is None:
@@ -176,11 +178,9 @@ def load_canonical_position_state(
         reasons.append("missing_or_stale_x_price")
     if y_price_sol is None:
         reasons.append("missing_or_stale_y_price")
-    if reset_or_claim:
-        reasons.append("fee_reset_or_claim")
 
-    x_amount = int(str(raw_x)) / (10 ** x_decimals) if x_decimals is not None else 0.0
-    y_amount = int(str(raw_y)) / (10 ** y_decimals) if y_decimals is not None else 0.0
+    x_amount = int(str(raw_x)) / (10 ** x_decimals) if x_decimals is not None else None
+    y_amount = int(str(raw_y)) / (10 ** y_decimals) if y_decimals is not None else None
     position_value_sol = None
     if not reasons:
         position_value_sol = x_amount * x_price_sol + y_amount * y_price_sol
