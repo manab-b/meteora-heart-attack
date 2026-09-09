@@ -90,8 +90,31 @@ class MeteoraDataApiClient:
             params["end_time"] = end_time
         return self._get(f"/pools/{address}/ohlcv", **params)
 
-    def get_volume_history(self, address: str) -> dict[str, Any]:
-        return self._get(f"/pools/{address}/volume/history")
+    def get_volume_history(
+        self,
+        address: str,
+        *,
+        start_time: int | None = None,
+        end_time: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        if start_time is not None:
+            params["start_time"] = start_time
+        if end_time is not None:
+            params["end_time"] = end_time
+        return self._get(f"/pools/{address}/volume/history", **params)
+
+    def get_position_history(self, position_address: str) -> dict[str, Any]:
+        """Fetch authoritative add/remove/claim events for one DLMM position."""
+        return self._get(f"/positions/{position_address}/historical")
+
+    def get_position_pnl(self, pool_address: str) -> dict[str, Any]:
+        """Fetch indexed PnL data for positions associated with a pool."""
+        return self._get(f"/positions/{pool_address}/pnl")
+
+    def get_wallet_pool_claims(self, wallet: str, pool_address: str) -> dict[str, Any]:
+        """Fetch indexed accumulated fee/reward claims for a wallet and pool."""
+        return self._get(f"/wallets/{wallet}/pools/{pool_address}/total_claims")
 
 
 def json_dumps_stable(payload: dict[str, Any]) -> str:
