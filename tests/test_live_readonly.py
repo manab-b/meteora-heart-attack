@@ -20,7 +20,7 @@ class FakeClient:
     def get_ohlcv(self, address, *, timeframe, start_time=None, end_time=None):
         return {"timeframe": timeframe, "data": []}
 
-    def get_volume_history(self, address, *, start_time=None, end_time=None):
+    def get_volume_history(self, address):
         return {"data": []}
 
 
