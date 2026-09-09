@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--db", default="data/heart_attack.sqlite3")
     parser.add_argument("--collect-raw", action="store_true", help="fetch real Meteora API payloads and persist them")
     parser.add_argument("--collect-limit", type=int, default=5)
+    parser.add_argument("--page-size", type=int, default=100)
     parser.add_argument("--timeframe", default="5m")
     args = parser.parse_args()
 
@@ -30,6 +31,7 @@ def main() -> None:
                 db.connection,
                 client,
                 limit=args.collect_limit,
+                page_size=args.page_size,
                 timeframe=args.timeframe,
             )
         db.close()
