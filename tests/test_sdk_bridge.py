@@ -47,4 +47,4 @@ def test_run_sdk_once_keeps_error_json_from_stdout(monkeypatch, tmp_path):
 
     assert not result.ok
     assert result.returncode == 1
-    assert result.records == (("error",),) if False else ({"error": "rpc unavailable"},)
+    assert result.records == ({"error": "rpc unavailable"},)
