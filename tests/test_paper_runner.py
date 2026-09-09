@@ -1,5 +1,3 @@
-import sqlite3
-
 from app.paper.engine import PaperEngine
 from app.scanner.paper_runner import apply_entry_decisions, evaluate_paper_exit
 from app.strategy.exit import ExitConfig
@@ -7,6 +5,7 @@ from app.strategy.exit import ExitConfig
 
 def test_paper_exit_uses_existing_exit_rules():
     decision = evaluate_paper_exit(
+        pool_address="POOL",
         in_range=True,
         out_of_range_seconds=0,
         drain_score=0.8,
@@ -14,6 +13,7 @@ def test_paper_exit_uses_existing_exit_rules():
         exit_config=ExitConfig(max_drain_score=0.7),
     )
     assert decision is not None
+    assert decision.pool_address == "POOL"
     assert decision.action == "EXIT"
     assert decision.reason == "LIQUIDITY_DRAIN"
 
