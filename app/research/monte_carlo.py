@@ -1,25 +1,14 @@
 from __future__ import annotations
+import random
 from dataclasses import dataclass
-import random, statistics
-
 @dataclass(frozen=True)
-class MonteCarloStats:
-    runs:int
-    median_final_sol:float
-    p05_final_sol:float
-    p95_final_sol:float
-    loss_probability:float
-    median_max_drawdown_sol:float
-
-def run(trade_pnls:list[float], initial_sol:float=5.0, runs:int=10_000, seed:int=42)->MonteCarloStats:
-    if not trade_pnls or runs<=0: return MonteCarloStats(runs,initial_sol,initial_sol,initial_sol,0.0,0.0)
-    rng=random.Random(seed); finals=[]; dds=[]
-    for _ in range(runs):
-        equity=initial_sol; peak=equity; dd=0.0
-        for pnl in rng.sample(trade_pnls,len(trade_pnls)):
-            equity+=pnl; peak=max(peak,equity); dd=max(dd,peak-equity)
-        finals.append(equity); dds.append(dd)
+class MonteCarloSummary:
+    runs:int; p05:float; median:float; p95:float; loss_probability:float
+def simulate(pnls:list[float],runs:int=10000,seed:int=42)->MonteCarloSummary:
+    if not pnls: raise ValueError("pnls cannot be empty")
+    if runs<100: raise ValueError("runs must be >= 100")
+    rng=random.Random(seed); finals=[]
+    for _ in range(runs): finals.append(sum(rng.choice(pnls) for _ in pnls))
     finals.sort()
-    q=lambda p: finals[min(len(finals)-1,int((len(finals)-1)*p))]
-    return MonteCarloStats(runs,statistics.median(finals),q(.05),q(.95),
-                           sum(x<initial_sol for x in finals)/runs,statistics.median(dds))
+    def q(p): return finals[min(len(finals)-1,max(0,int((len(finals)-1)*p)))]
+    return MonteCarloSummary(runs,q(.05),q(.50),q(.95),sum(x<0 for x in finals)/runs)
