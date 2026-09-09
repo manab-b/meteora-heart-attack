@@ -2,7 +2,10 @@
   "name": "meteora-heart-attack-sdk",
   "private": true,
   "type": "module",
-  "scripts": {"collect": "tsx src/collector.ts"},
+  "scripts": {
+    "collect": "tsx src/collector.ts",
+    "collect:positions": "tsx src/position_collector.ts"
+  },
   "dependencies": {
     "@meteora-ag/dlmm": "latest",
     "@solana/web3.js": "latest",
