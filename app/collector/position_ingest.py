@@ -9,6 +9,8 @@ from app.positions.analytics import consecutive_range_survival, position_fee_del
 from app.positions.adapter import normalize_position
 from app.storage.position_analytics import insert_position_analytics
 from app.storage.raw import insert_raw_snapshot
+from app.storage.token_quotes import latest_token_quote
+from app.valuation.fee_quote import quote_fee_delta
 
 
 def _timestamp(value: str) -> float:
@@ -26,14 +28,55 @@ def _latest_analytics(connection: sqlite3.Connection, position_address: str):
     ).fetchone()
 
 
+def _fee_sol_from_quotes(
+    connection: sqlite3.Connection,
+    *,
+    pool_address: str,
+    observed_at: float,
+    fee_x_delta_raw: int,
+    fee_y_delta_raw: int,
+    x_decimals: int | None,
+    y_decimals: int | None,
+    max_quote_age_seconds: float,
+) -> float | None:
+    if x_decimals is None or y_decimals is None:
+        return None
+    x_quote = latest_token_quote(
+        connection,
+        pool_address=pool_address,
+        token_side="x",
+        observed_at=observed_at,
+        max_age_seconds=max_quote_age_seconds,
+    )
+    y_quote = latest_token_quote(
+        connection,
+        pool_address=pool_address,
+        token_side="y",
+        observed_at=observed_at,
+        max_age_seconds=max_quote_age_seconds,
+    )
+    if x_quote is None or y_quote is None:
+        return None
+    return quote_fee_delta(
+        fee_x_raw=fee_x_delta_raw,
+        fee_y_raw=fee_y_delta_raw,
+        x_decimals=x_decimals,
+        y_decimals=y_decimals,
+        x_sol_price=x_quote[0],
+        y_sol_price=y_quote[0],
+    )
+
+
 def ingest_position_observation(
     connection: sqlite3.Connection,
     payload: dict[str, Any],
+    *,
+    max_quote_age_seconds: float = 120.0,
 ) -> dict[str, Any]:
-    """Persist one JSONL SDK observation and derive only observable metrics.
+    """Persist one SDK observation and derive only observable metrics.
 
-    Fee SOL is intentionally left NULL here: a real token/SOL quote must be
-    supplied by the valuation layer before converting raw fee deltas to SOL.
+    Raw fee deltas remain authoritative. Fee SOL is populated only when both
+    token/SOL quotes exist in storage, are fresh, and SDK decimals are present.
     """
     observed_at = str(payload["observed_at"])
     observed_ts = _timestamp(observed_at)
@@ -54,8 +97,7 @@ def ingest_position_observation(
         ORDER BY observed_at DESC, id DESC LIMIT 1""",
         (snapshot.position_address,),
     ).fetchone()
-    insert_position = connection.execute
-    insert_position(
+    connection.execute(
         """INSERT INTO position_snapshots
         (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
          deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
@@ -100,6 +142,17 @@ def ingest_position_observation(
         survival = 0.0
         in_range = None
 
+    fee_sol = _fee_sol_from_quotes(
+        connection,
+        pool_address=snapshot.pool_address,
+        observed_at=observed_ts,
+        fee_x_delta_raw=fee_x_delta,
+        fee_y_delta_raw=fee_y_delta,
+        x_decimals=payload.get("token_x_decimals"),
+        y_decimals=payload.get("token_y_decimals"),
+        max_quote_age_seconds=max_quote_age_seconds,
+    )
+
     insert_position_analytics(
         connection,
         position_address=snapshot.position_address,
@@ -113,7 +166,7 @@ def ingest_position_observation(
         fee_x_delta_raw=fee_x_delta,
         fee_y_delta_raw=fee_y_delta,
         reset_or_claim=reset_or_claim,
-        fee_sol=None,
+        fee_sol=fee_sol,
         source="meteora-sdk",
     )
     connection.commit()
@@ -122,6 +175,7 @@ def ingest_position_observation(
         "pool_address": snapshot.pool_address,
         "fee_x_delta_raw": fee_x_delta,
         "fee_y_delta_raw": fee_y_delta,
+        "fee_sol": fee_sol,
         "reset_or_claim": reset_or_claim,
         "range_survival_seconds": survival,
         "in_range": in_range,
