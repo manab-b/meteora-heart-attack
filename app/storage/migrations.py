@@ -7,6 +7,7 @@ from app.storage.fee_deltas import init_fee_delta_schema
 from app.storage.observations import init_observation_schema
 from app.storage.position_analytics import init_position_analytics_schema
 from app.storage.raw import init_raw_schema
+from app.storage.token_quotes import init_token_quote_schema
 
 
 def initialize_database(connection: sqlite3.Connection) -> None:
@@ -15,3 +16,4 @@ def initialize_database(connection: sqlite3.Connection) -> None:
     init_fee_delta_schema(connection)
     init_position_analytics_schema(connection)
     init_raw_schema(connection)
+    init_token_quote_schema(connection)
