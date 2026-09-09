@@ -29,21 +29,38 @@ class StrategyBacktest:
 
     def run(self, observations: list[Observation], fee_per_minute_to_sol: float = 0.0) -> list[Trade]:
         trades: list[Trade] = []
-        open_trade = None
+        open_trade: Observation | None = None
         fee_sol = 0.0
+        out_since: float | None = None
+
         for o in observations:
             if open_trade is None:
                 if should_enter(o.volume_usd, o.fee_velocity_sol_min, o.drain_score,
                                 o.range_survival_seconds, self.entry_cfg):
                     open_trade = o
                     fee_sol = 0.0
+                    out_since = None
                 continue
+
             elapsed = max(0.0, o.timestamp - open_trade.timestamp)
             fee_sol += max(0.0, fee_per_minute_to_sol) * elapsed / 60.0
-            close, reason = should_exit(o.in_range, 0 if o.in_range else elapsed,
-                                        o.drain_score, o.fee_velocity_sol_min, self.exit_cfg)
+
+            if o.in_range:
+                out_since = None
+                out_duration = 0.0
+            else:
+                if out_since is None:
+                    out_since = o.timestamp
+                out_duration = max(0.0, o.timestamp - out_since)
+
+            close, reason = should_exit(
+                o.in_range, out_duration, o.drain_score,
+                o.fee_velocity_sol_min, self.exit_cfg
+            )
             if close:
                 trades.append(Trade(open_trade.timestamp, o.timestamp,
                                     open_trade.price, o.price, fee_sol, reason))
                 open_trade = None
+                fee_sol = 0.0
+                out_since = None
         return trades
