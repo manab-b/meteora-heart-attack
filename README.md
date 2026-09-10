@@ -59,6 +59,26 @@ npm run collect:positions -- --once YOUR_POOL_ADDRESS > ../positions.jsonl
 
 The discovery mode is read-only: it uses the SDK's owner-position account query and does not require a signer, private key, transaction, claim, swap, or liquidity mutation.
 
+### Global PositionV2 owner discovery
+
+When a candidate wallet has no PositionV2 accounts, the owner-specific SDK query cannot identify another wallet automatically. The SDK also exposes the underlying PositionV2 account layout: the DLMM program stores `lb_pair` at offset 8 and `owner` at offset 40, and the PositionV2 discriminator can be used to filter the program accounts. This repository includes a read-only RPC scanner for that purpose.
+
+```bash
+cd sdk
+npm run discover:positions -- --rpc-url https://api.mainnet-beta.solana.com --limit 100
+```
+
+To verify a specific wallet without relying on the SDK's processed position path:
+
+```bash
+npm run discover:positions -- \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --owner YOUR_PUBLIC_KEY \
+  --limit 100
+```
+
+The command only reads Solana `getProgramAccounts` data and returns position addresses, owners and DLMM pool addresses. It does not sign, submit, claim, swap, or mutate liquidity. The global scan may depend on the RPC provider allowing `getProgramAccounts`; use a capable RPC endpoint if the public endpoint rejects large account queries.
+
 Ingest authoritative observations into SQLite:
 
 ```bash
