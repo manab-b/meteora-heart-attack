@@ -6,13 +6,33 @@ from app.research.paper_replay import build_replay_points, replay_position
 from app.storage.bin_drain import init_bin_drain_schema
 from app.storage.bin_liquidity import init_bin_liquidity_schema
 from app.storage.position_analytics import init_position_analytics_schema, insert_position_analytics
+from app.storage.raw import init_raw_schema, insert_raw_snapshot
+from app.storage.token_quotes import init_token_quote_schema, insert_token_quote
 
 
 def _connection():
     conn = sqlite3.connect(":memory:")
+    init_raw_schema(conn)
+    init_token_quote_schema(conn)
     init_bin_liquidity_schema(conn)
     init_bin_drain_schema(conn)
     init_position_analytics_schema(conn)
+    conn.execute(
+        """CREATE TABLE position_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            position_address TEXT NOT NULL,
+            owner TEXT,
+            pool_address TEXT NOT NULL,
+            lower_bin_id INTEGER,
+            upper_bin_id INTEGER,
+            deposited_x TEXT NOT NULL,
+            deposited_y TEXT NOT NULL,
+            unclaimed_fee_x TEXT,
+            unclaimed_fee_y TEXT,
+            observed_at TEXT NOT NULL,
+            source TEXT NOT NULL
+        )"""
+    )
     return conn
 
 
@@ -110,3 +130,81 @@ def test_replay_exits_on_observed_drain_score():
     result = replay_position(conn, position_address="POS", max_drain_score=0.95)
     assert result.closed
     assert any(event["action"] == "DRAIN_EXIT" for event in result.events)
+
+
+def test_replay_calculates_dlmm_pnl_from_historical_canonical_states():
+    conn = _connection()
+    timestamps = ("1970-01-01T00:01:00+00:00", "1970-01-01T00:02:00+00:00")
+    for index, (iso_ts, ts) in enumerate(zip(timestamps, (60.0, 120.0))):
+        conn.execute(
+            """INSERT INTO position_snapshots
+            (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
+             deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
+            VALUES ('POS','OWNER','P',9,11,'100','100','0','0',?,'test')""",
+            (iso_ts,),
+        )
+        insert_raw_snapshot(
+            conn,
+            source="test",
+            endpoint="position_collector",
+            pool_address="P",
+            observed_at=iso_ts,
+            payload={
+                "position_address": "POS",
+                "token_x_decimals": 0,
+                "token_y_decimals": 0,
+            },
+        )
+        insert_token_quote(conn, pool_address="P", token_side="x", price_sol=1.0, observed_at=ts, source="test")
+        insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
+        for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
+            _bin(conn, "P", bin_id, ts, price)
+        _drain(conn, ts, 0.0 if index == 0 else 0.99)
+        _analytics(conn, ts, 0.02 if index == 0 else 0.01)
+    conn.commit()
+
+    result = replay_position(conn, position_address="POS", min_fee_velocity_sol_min=0.01)
+
+    assert result.closed
+    assert result.dlmm_pnl is not None
+    assert result.dlmm_pnl.entry_value_sol == pytest.approx(200.0)
+    assert result.dlmm_pnl.current_value_sol == pytest.approx(200.0)
+    assert result.dlmm_pnl.fees_sol == pytest.approx(0.03)
+    assert result.dlmm_pnl.net_pnl_sol == pytest.approx(0.03)
+
+
+def test_historical_canonical_replay_does_not_look_ahead():
+    conn = _connection()
+    for iso_ts, ts, raw_x in (
+        ("1970-01-01T00:01:00+00:00", 60.0, "100"),
+        ("1970-01-01T00:02:00+00:00", 120.0, "200"),
+    ):
+        conn.execute(
+            """INSERT INTO position_snapshots
+            (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
+             deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
+            VALUES ('POS','OWNER','P',9,11,?, '100','0','0',?,'test')""",
+            (raw_x, iso_ts),
+        )
+        insert_raw_snapshot(
+            conn,
+            source="test",
+            endpoint="position_collector",
+            pool_address="P",
+            observed_at=iso_ts,
+            payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0},
+        )
+        insert_token_quote(conn, pool_address="P", token_side="x", price_sol=1.0, observed_at=ts, source="test")
+        insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
+        for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
+            _bin(conn, "P", bin_id, ts, price)
+        _drain(conn, ts, 0.0)
+        _analytics(conn, ts, 0.0)
+    conn.commit()
+
+    from app.paper.canonical_position import load_canonical_position_state
+
+    state = load_canonical_position_state(conn, "POS", observed_at=60.0)
+    assert state is not None
+    assert state.observed_at == pytest.approx(60.0)
+    assert state.x_amount == pytest.approx(100.0)
