@@ -42,5 +42,5 @@ ORDER BY pool_address;
 
 SELECT
   COUNT(*) AS closed_paper_trades,
-  SUM(CASE WHEN pnl_net_sol IS NOT NULL THEN 1 ELSE 0 END) AS trades_with_net_pnl
+  SUM(CASE WHEN net_pnl_sol IS NOT NULL THEN 1 ELSE 0 END) AS trades_with_net_pnl
 FROM paper_trades;
