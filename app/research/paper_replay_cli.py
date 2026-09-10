@@ -62,6 +62,7 @@ def run(
     max_drain_score: float = 0.95,
     min_fee_velocity_sol_min: float = 0.0,
     min_score: float = 0.7,
+    require_paper_trades: bool = False,
 ) -> dict:
     path = Path(db_path)
     if not path.is_file():
@@ -93,6 +94,9 @@ def run(
 
     trades = [_result_payload(result) for result in results]
     closed = sum(item["paper_trade"] for item in trades)
+    if require_paper_trades and closed == 0:
+        raise ValueError("replay produced no closed paper trades")
+
     return {
         "database": str(path),
         "positions_replayed": len(trades),
@@ -112,6 +116,11 @@ def main() -> int:
     parser.add_argument("--max-drain-score", type=float, default=0.95)
     parser.add_argument("--min-fee-velocity-sol-min", type=float, default=0.0)
     parser.add_argument("--min-score", type=float, default=0.7)
+    parser.add_argument(
+        "--require-paper-trades",
+        action="store_true",
+        help="fail unless the replay produces at least one closed paper trade",
+    )
     args = parser.parse_args()
 
     payload = run(
@@ -122,6 +131,7 @@ def main() -> int:
         max_drain_score=args.max_drain_score,
         min_fee_velocity_sol_min=args.min_fee_velocity_sol_min,
         min_score=args.min_score,
+        require_paper_trades=args.require_paper_trades,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
