@@ -1,6 +1,8 @@
 import json
 import sqlite3
 
+import pytest
+
 from app.collector.position_ingest import WSOL_MINT, ingest_jsonl
 from app.storage.migrations import initialize_database
 from app.storage.token_quotes import insert_token_quote, latest_token_quote
@@ -171,7 +173,7 @@ def test_sol_pair_active_bin_price_creates_authoritative_quotes_and_values_fee()
     results = ingest_jsonl(connection, [json.dumps(row) for row in rows])
     assert results[-1]["fee_x_delta_raw"] == 1000
     assert results[-1]["fee_y_delta_raw"] == 1000
-    assert results[-1]["fee_sol"] == 0.0000010005
+    assert results[-1]["fee_sol"] == pytest.approx(0.0000010005)
 
     x_quote = latest_token_quote(
         connection,
@@ -187,5 +189,5 @@ def test_sol_pair_active_bin_price_creates_authoritative_quotes_and_values_fee()
         observed_at=30.0,
         max_age_seconds=1.0,
     )
-    assert x_quote is not None and x_quote[0] == 0.0005
-    assert y_quote is not None and y_quote[0] == 1.0
+    assert x_quote is not None and x_quote[0] == pytest.approx(0.0005)
+    assert y_quote is not None and y_quote[0] == pytest.approx(1.0)
