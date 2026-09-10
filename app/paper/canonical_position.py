@@ -36,14 +36,23 @@ def _timestamp(value: str) -> float:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-def _latest_position(connection: sqlite3.Connection, position_address: str):
+def _latest_position(connection: sqlite3.Connection, position_address: str, observed_at: float | None = None):
+    if observed_at is None:
+        return connection.execute(
+            """SELECT position_address, pool_address, lower_bin_id, upper_bin_id,
+                      deposited_x, deposited_y, observed_at
+               FROM position_snapshots
+              WHERE position_address = ?
+              ORDER BY observed_at DESC, id DESC LIMIT 1""",
+            (position_address,),
+        ).fetchone()
     return connection.execute(
         """SELECT position_address, pool_address, lower_bin_id, upper_bin_id,
                   deposited_x, deposited_y, observed_at
            FROM position_snapshots
-          WHERE position_address = ?
+          WHERE position_address = ? AND observed_at <= ?
           ORDER BY observed_at DESC, id DESC LIMIT 1""",
-        (position_address,),
+        (position_address, observed_at),
     ).fetchone()
 
 
@@ -126,28 +135,30 @@ def load_canonical_position_state(
     connection: sqlite3.Connection,
     position_address: str,
     *,
+    observed_at: float | None = None,
     max_quote_age_seconds: float = 120.0,
 ) -> CanonicalPositionState | None:
     """Reconstruct one position state strictly from persisted observations.
 
-    This is deliberately read-only. Missing facts make MTM ineligible rather
-    than being filled with defaults or estimates. Fee claim/reset state only
-    affects fee accounting; it must not invalidate the independently observable
-    position mark-to-market.
+    ``observed_at`` selects the latest observation at or before that point,
+    allowing historical paper replay without looking ahead to later snapshots.
+    Missing facts make MTM ineligible rather than being filled with estimates.
     """
-    row = _latest_position(connection, position_address)
+    row = _latest_position(connection, position_address, observed_at)
     if row is None:
         return None
 
     position_address, pool_address, lower_bin_id, upper_bin_id, raw_x, raw_y, observed_at_text = row
-    observed_at = _timestamp(str(observed_at_text))
+    state_observed_at = _timestamp(str(observed_at_text))
+    if observed_at is not None and state_observed_at > observed_at:
+        return None
     payload = _raw_payload(connection, position_address, str(observed_at_text))
     x_decimals = payload.get("token_x_decimals") if payload else None
     y_decimals = payload.get("token_y_decimals") if payload else None
     x_decimals = int(x_decimals) if x_decimals is not None else None
     y_decimals = int(y_decimals) if y_decimals is not None else None
 
-    analytics = _latest_analytics(connection, position_address, observed_at)
+    analytics = _latest_analytics(connection, position_address, state_observed_at)
     if analytics is None:
         active_bin_id = None
         in_range = None
@@ -167,8 +178,8 @@ def load_canonical_position_state(
         reset_or_claim = bool(analytics[7])
         fee_sol = None if analytics[8] is None else float(analytics[8])
 
-    x_price_sol = _latest_quote(connection, pool_address, "x", observed_at, max_quote_age_seconds)
-    y_price_sol = _latest_quote(connection, pool_address, "y", observed_at, max_quote_age_seconds)
+    x_price_sol = _latest_quote(connection, pool_address, "x", state_observed_at, max_quote_age_seconds)
+    y_price_sol = _latest_quote(connection, pool_address, "y", state_observed_at, max_quote_age_seconds)
     reasons: list[str] = []
     if x_decimals is None:
         reasons.append("missing_x_decimals")
@@ -188,13 +199,13 @@ def load_canonical_position_state(
     return CanonicalPositionState(
         position_address=str(position_address),
         pool_address=str(pool_address),
-        observed_at=observed_at,
+        observed_at=state_observed_at,
         active_bin_id=active_bin_id,
         lower_bin_id=None if lower_bin_id is None else int(lower_bin_id),
         upper_bin_id=None if upper_bin_id is None else int(upper_bin_id),
         in_range=in_range,
         range_survival_seconds=survival,
-        drain_score=_drain_score(connection, str(pool_address), active_bin_id, observed_at),
+        drain_score=_drain_score(connection, str(pool_address), active_bin_id, state_observed_at),
         x_amount=x_amount,
         y_amount=y_amount,
         x_price_sol=x_price_sol,
