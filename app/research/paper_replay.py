@@ -148,33 +148,6 @@ def build_replay_points(
     return tuple(points)
 
 
-def _canonical_state(point: ReplayPoint) -> CanonicalPositionState:
-    return CanonicalPositionState(
-        position_address=point.position_address,
-        pool_address=point.pool_address,
-        observed_at=point.observed_at,
-        active_bin_id=None,
-        lower_bin_id=None,
-        upper_bin_id=None,
-        in_range=point.in_range,
-        range_survival_seconds=0.0,
-        drain_score=point.drain_score,
-        x_amount=None,
-        y_amount=None,
-        x_price_sol=None,
-        y_price_sol=None,
-        x_decimals=None,
-        y_decimals=None,
-        fee_x_delta_raw=0,
-        fee_y_delta_raw=0,
-        fee_sol=point.fee_delta_sol,
-        reset_or_claim=False,
-        position_value_sol=None,
-        eligible_for_mtm=False,
-        ineligible_reasons=("replay_source_does_not_include_token_inventory",),
-    )
-
-
 def _historical_canonical_state(
     connection: sqlite3.Connection,
     position_address: str,
@@ -241,9 +214,11 @@ def replay_position(
 
     for point in points:
         actual_state = _historical_canonical_state(connection, position_address, point.observed_at)
-        signal_state = actual_state if actual_state is not None else _canonical_state(point)
+        if actual_state is None:
+            skipped.append(f"{point.observed_at}:NO_CANONICAL_STATE")
+            continue
         signal = evaluate_canonical_state(
-            signal_state,
+            actual_state,
             point.fee_velocity_sol_min,
             min_fee_velocity=min_fee_velocity_sol_min,
             max_drain=max_drain_score,
@@ -260,8 +235,8 @@ def replay_position(
                     max_price=point.upper_price,
                     deposit_sol=deposit_sol,
                     timestamp=point.observed_at,
-                    x_amount=actual_state.x_amount if actual_state else None,
-                    y_amount=actual_state.y_amount if actual_state else None,
+                    x_amount=actual_state.x_amount,
+                    y_amount=actual_state.y_amount,
                     x_price_usd=None,
                     y_price_usd=None,
                 )
