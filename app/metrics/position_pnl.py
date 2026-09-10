@@ -127,6 +127,33 @@ def dlmm_pnl_sol(
     )
 
 
+def dlmm_pnl_from_canonical_states(entry_state, current_state, fees_sol: float = 0.0) -> DlmmPnl:
+    """Build DLMM PnL only from two eligible canonical position observations.
+
+    The fee amount must be supplied by an authoritative accumulated fee ledger;
+    this function never derives it from pool volume or price movement.
+    """
+    for name, state in (("entry_state", entry_state), ("current_state", current_state)):
+        if not getattr(state, "eligible_for_mtm", False):
+            raise ValueError(f"{name} is not eligible for MTM")
+        if any(
+            getattr(state, field) is None
+            for field in ("x_amount", "y_amount", "x_price_sol", "y_price_sol")
+        ):
+            raise ValueError(f"{name} is missing position valuation facts")
+    return dlmm_pnl_sol(
+        entry_state.x_amount,
+        entry_state.y_amount,
+        current_state.x_amount,
+        current_state.y_amount,
+        entry_state.x_price_sol,
+        entry_state.y_price_sol,
+        current_state.x_price_sol,
+        current_state.y_price_sol,
+        fees_sol=fees_sol,
+    )
+
+
 def max_drawdown(values: Iterable[float]) -> float:
     """Return absolute peak-to-trough drawdown for an equity/value series."""
     iterator = iter(values)
@@ -144,3 +171,22 @@ def max_drawdown(values: Iterable[float]) -> float:
         peak = max(peak, value)
         drawdown = max(drawdown, peak - value)
     return drawdown
+
+
+def max_drawdown_pct(values: Iterable[float]) -> float:
+    """Return maximum peak-to-trough drawdown as a percentage."""
+    iterator = iter(values)
+    try:
+        peak = float(next(iterator))
+    except StopIteration:
+        return 0.0
+    if peak <= 0:
+        raise ValueError("equity values must start positive")
+    drawdown_pct = 0.0
+    for value in iterator:
+        value = float(value)
+        if value < 0:
+            raise ValueError("equity values must be non-negative")
+        peak = max(peak, value)
+        drawdown_pct = max(drawdown_pct, (peak - value) / peak * 100.0)
+    return drawdown_pct
