@@ -73,3 +73,41 @@ def test_canonical_state_refuses_stale_price_instead_of_estimating():
     assert state.position_value_sol is None
     assert "missing_or_stale_x_price" in state.ineligible_reasons
     assert "missing_or_stale_y_price" in state.ineligible_reasons
+
+
+def test_fee_reset_does_not_invalidate_independent_position_mtm():
+    connection = sqlite3.connect(":memory:")
+    initialize_database(connection)
+    insert_token_quote(connection, pool_address="pool", token_side="x", price_sol=2.0, observed_at=60.0, source="test")
+    insert_token_quote(connection, pool_address="pool", token_side="y", price_sol=3.0, observed_at=60.0, source="test")
+    connection.commit()
+
+    ingest_jsonl(
+        connection,
+        [_payload("1970-01-01T00:00:00+00:00"), _payload("1970-01-01T00:01:00+00:00", fee_x="50", fee_y="100")],
+    )
+
+    state = load_canonical_position_state(connection, "position")
+    assert state is not None
+    assert state.reset_or_claim is True
+    assert state.fee_sol is None
+    assert state.eligible_for_mtm is True
+    assert state.position_value_sol == 13.0
+
+
+def test_missing_decimals_never_become_zero_amounts():
+    connection = sqlite3.connect(":memory:")
+    initialize_database(connection)
+    insert_token_quote(connection, pool_address="pool", token_side="x", price_sol=2.0, observed_at=0.0, source="test")
+    insert_token_quote(connection, pool_address="pool", token_side="y", price_sol=3.0, observed_at=0.0, source="test")
+    connection.commit()
+
+    payload = json.loads(_payload("1970-01-01T00:00:00+00:00"))
+    payload.pop("token_x_decimals")
+    ingest_jsonl(connection, [json.dumps(payload)])
+
+    state = load_canonical_position_state(connection, "position")
+    assert state is not None
+    assert state.x_amount is None
+    assert state.eligible_for_mtm is False
+    assert "missing_x_decimals" in state.ineligible_reasons
