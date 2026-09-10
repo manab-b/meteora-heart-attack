@@ -5,11 +5,13 @@
   "scripts": {
     "collect": "tsx src/collector.ts",
     "collect:positions": "tsx src/position_collector.ts",
-    "collect:bins": "tsx src/bin_collector.ts"
+    "collect:bins": "tsx src/bin_collector.ts",
+    "discover:positions": "tsx src/discover_position_accounts.ts"
   },
   "dependencies": {
     "@meteora-ag/dlmm": "latest",
     "@solana/web3.js": "latest",
+    "bs58": "^6.0.0",
     "dotenv": "latest",
     "tsx": "latest"
   }
