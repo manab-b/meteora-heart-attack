@@ -4,6 +4,8 @@ from app.paper.canonical_position import CanonicalPositionState
 from app.paper.cycle import PaperMarketTick, run_paper_cycle
 from app.paper.dlmm_signal import evaluate_canonical_state
 from app.paper.engine import PaperEngine
+from app.research.grid_runner import evaluate_signal
+from app.research.strategy_grid import StrategyConfig
 from app.storage.migrations import initialize_database
 from app.storage.paper_trades import persist_engine
 
@@ -108,3 +110,13 @@ def test_cycle_uses_canonical_state_for_exit():
 
     assert result.exits[0].reason == "LIQUIDITY_DRAIN"
     assert result.engine.positions["paper:POOL:100"].status == "CLOSED"
+
+
+def test_research_grid_config_controls_canonical_signal_thresholds():
+    state = canonical_state(drain_score=0.1)
+    config = StrategyConfig("S-CANONICAL", 0.8, 0.01, 0.95, 60)
+
+    signal = evaluate_signal(config, state, fee_velocity_sol_min=0.02)
+
+    assert signal.score == 0.73
+    assert signal.entry is False
