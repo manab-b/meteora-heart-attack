@@ -11,7 +11,6 @@
   "dependencies": {
     "@meteora-ag/dlmm": "latest",
     "@solana/web3.js": "latest",
-    "bs58": "^6.0.0",
     "dotenv": "latest",
     "tsx": "latest"
   }
