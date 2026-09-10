@@ -36,6 +36,19 @@ function asNumber(value: unknown, field: string): number {
 }
 
 /**
+ * Discover the DLMM pools where an owner has PositionV2 accounts.
+ * This is read-only and delegates account discovery to the Meteora SDK.
+ */
+export async function discoverPositionPools(
+  connection: Connection,
+  ownerAddress: string,
+): Promise<string[]> {
+  const owner = new PublicKey(ownerAddress);
+  const positionsByPool = await DLMM.getAllLbPairPositionsByUser(connection, owner);
+  return Array.from(positionsByPool.keys()).map((poolAddress) => String(poolAddress));
+}
+
+/**
  * Read-only position collector. No signer, wallet keypair, transaction builder,
  * claim, swap, or liquidity mutation is used here.
  */
