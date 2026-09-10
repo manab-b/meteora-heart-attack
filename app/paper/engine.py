@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from time import time
 
-from app.metrics.position_pnl import position_value_usd
+from app.metrics.position_pnl import dlmm_pnl_from_canonical_states, position_value_usd
 from app.paper.canonical_position import CanonicalPositionState
 
 
@@ -148,6 +148,15 @@ class PaperEngine:
         if not state.eligible_for_mtm:
             return None
         return state.position_value_sol
+
+    def dlmm_pnl_from_canonical(
+        self,
+        entry_state: CanonicalPositionState,
+        current_state: CanonicalPositionState,
+        fees_sol: float,
+    ):
+        """Calculate paper DLMM PnL from authoritative canonical observations."""
+        return dlmm_pnl_from_canonical_states(entry_state, current_state, fees_sol=fees_sol)
 
     def _event(self, action: str, p: PaperPosition, price: float, timestamp: float) -> None:
         self.events.append(
