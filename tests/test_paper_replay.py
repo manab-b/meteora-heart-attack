@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from app.research.paper_replay import build_replay_points, replay_position
+from app.research.paper_replay import build_replay_points, persist_replay_result, replay_position
 from app.storage.bin_drain import init_bin_drain_schema
 from app.storage.bin_liquidity import init_bin_liquidity_schema
 from app.storage.position_analytics import init_position_analytics_schema, insert_position_analytics
@@ -59,20 +59,10 @@ def _drain(conn, ts, score):
 
 def _analytics(conn, ts, fee, in_range=True):
     insert_position_analytics(
-        conn,
-        position_address="POS",
-        pool_address="P",
-        observed_at=ts,
-        active_bin_id=10,
-        lower_bin_id=9,
-        upper_bin_id=11,
-        in_range=in_range,
-        range_survival_seconds=ts,
-        fee_x_delta_raw=0,
-        fee_y_delta_raw=0,
-        reset_or_claim=False,
-        fee_sol=fee,
-        source="test",
+        conn, position_address="POS", pool_address="P", observed_at=ts,
+        active_bin_id=10, lower_bin_id=9, upper_bin_id=11, in_range=in_range,
+        range_survival_seconds=ts, fee_x_delta_raw=0, fee_y_delta_raw=0,
+        reset_or_claim=False, fee_sol=fee, source="test",
     )
 
 
@@ -84,7 +74,6 @@ def test_replay_uses_position_fee_not_pool_volume():
         _drain(conn, ts, 0.0)
     for ts, fee in ((0.0, 0.0), (60.0, 0.01), (120.0, 0.02)):
         _analytics(conn, ts, fee)
-
     points = build_replay_points(conn, position_address="POS")
     assert [round(point.fee_delta_sol, 4) for point in points] == [0.0, 0.01, 0.02]
     assert points[-1].fee_velocity_sol_min > 0
@@ -96,7 +85,6 @@ def test_replay_requires_authoritative_drain_observation():
         for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
             _bin(conn, "P", bin_id, ts, price)
         _analytics(conn, ts, 0.01)
-
     result = replay_position(conn, position_address="POS")
     assert result.points == ()
     assert result.skipped == ("no_valid_authoritative_points",)
@@ -110,7 +98,6 @@ def test_replay_does_not_enter_without_canonical_position_state():
         _drain(conn, ts, 0.0)
     _analytics(conn, 0.0, 0.0)
     _analytics(conn, 60.0, 0.02)
-
     result = replay_position(conn, position_address="POS", min_fee_velocity_sol_min=0.01)
     assert not any(event["action"] == "OPEN" for event in result.events)
     assert result.skipped == ("60.0:NO_CANONICAL_STATE",)
@@ -133,18 +120,11 @@ def test_replay_exits_on_observed_drain_score():
             VALUES ('POS','OWNER','P',9,11,'100','100','0','0',?,'test')""",
             (iso_ts,),
         )
-        insert_raw_snapshot(
-            conn,
-            source="test",
-            endpoint="position_collector",
-            pool_address="P",
-            observed_at=iso_ts,
-            payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0},
-        )
+        insert_raw_snapshot(conn, source="test", endpoint="position_collector", pool_address="P",
+                            observed_at=iso_ts, payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0})
         insert_token_quote(conn, pool_address="P", token_side="x", price_sol=1.0, observed_at=ts, source="test")
         insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
     conn.commit()
-
     result = replay_position(conn, position_address="POS", max_drain_score=0.95)
     assert result.closed
     assert any(event["action"] == "DRAIN_EXIT" for event in result.events)
@@ -162,21 +142,9 @@ def test_replay_calculates_dlmm_pnl_from_historical_canonical_states():
             """INSERT INTO position_snapshots
             (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
              deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
-            VALUES ('POS','OWNER','P',9,11,'100','100','0','0',?,'test')""",
-            (iso_ts,),
-        )
-        insert_raw_snapshot(
-            conn,
-            source="test",
-            endpoint="position_collector",
-            pool_address="P",
-            observed_at=iso_ts,
-            payload={
-                "position_address": "POS",
-                "token_x_decimals": 0,
-                "token_y_decimals": 0,
-            },
-        )
+            VALUES ('POS','OWNER','P',9,11,'100','100','0','0',?,'test')""", (iso_ts,))
+        insert_raw_snapshot(conn, source="test", endpoint="position_collector", pool_address="P", observed_at=iso_ts,
+                            payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0})
         insert_token_quote(conn, pool_address="P", token_side="x", price_sol=1.0, observed_at=ts, source="test")
         insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
         for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
@@ -184,9 +152,7 @@ def test_replay_calculates_dlmm_pnl_from_historical_canonical_states():
         _drain(conn, ts, drain_score)
         _analytics(conn, ts, fee)
     conn.commit()
-
     result = replay_position(conn, position_address="POS", min_fee_velocity_sol_min=0.01)
-
     assert result.closed
     assert result.dlmm_pnl is not None
     assert result.dlmm_pnl.entry_value_sol == pytest.approx(200.0)
@@ -205,17 +171,9 @@ def test_historical_canonical_replay_does_not_look_ahead():
             """INSERT INTO position_snapshots
             (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
              deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
-            VALUES ('POS','OWNER','P',9,11,?, '100','0','0',?,'test')""",
-            (raw_x, iso_ts),
-        )
-        insert_raw_snapshot(
-            conn,
-            source="test",
-            endpoint="position_collector",
-            pool_address="P",
-            observed_at=iso_ts,
-            payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0},
-        )
+            VALUES ('POS','OWNER','P',9,11,?, '100','0','0',?,'test')""", (raw_x, iso_ts))
+        insert_raw_snapshot(conn, source="test", endpoint="position_collector", pool_address="P", observed_at=iso_ts,
+                            payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0})
         insert_token_quote(conn, pool_address="P", token_side="x", price_sol=1.0, observed_at=ts, source="test")
         insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
         for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
@@ -223,10 +181,48 @@ def test_historical_canonical_replay_does_not_look_ahead():
         _drain(conn, ts, 0.0)
         _analytics(conn, ts, 0.0)
     conn.commit()
-
     from app.paper.canonical_position import load_canonical_position_state
-
     state = load_canonical_position_state(conn, "POS", observed_at=60.0)
     assert state is not None
     assert state.observed_at == pytest.approx(60.0)
     assert state.x_amount == pytest.approx(100.0)
+
+
+def test_persist_replay_result_is_idempotent_and_never_invents_pnl():
+    conn = _connection()
+    observations = (
+        ("1970-01-01T00:00:00+00:00", 0.0, 0.0, 0.0),
+        ("1970-01-01T00:01:00+00:00", 60.0, 0.99, 0.01),
+    )
+    for iso_ts, ts, drain_score, fee in observations:
+        conn.execute(
+            """INSERT INTO position_snapshots
+            (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
+             deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
+            VALUES ('POS','OWNER','P',9,11,'100','100','0','0',?,'test')""", (iso_ts,))
+        insert_raw_snapshot(conn, source="test", endpoint="position_collector", pool_address="P", observed_at=iso_ts,
+                            payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0})
+        insert_token_quote(conn, pool_address="P", token_side="x", price_sol=1.0, observed_at=ts, source="test")
+        insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
+        for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
+            _bin(conn, "P", bin_id, ts, price)
+        _drain(conn, ts, drain_score)
+        _analytics(conn, ts, fee)
+    conn.commit()
+    result = replay_position(conn, position_address="POS", min_fee_velocity_sol_min=0.001)
+    assert result.closed
+    assert result.dlmm_pnl is not None
+    assert persist_replay_result(conn, result)
+    assert not persist_replay_result(conn, result)
+    row = conn.execute("SELECT gross_pnl_sol, fees_sol, net_pnl_sol FROM paper_trades").fetchone()
+    assert row == pytest.approx((result.dlmm_pnl.net_pnl_sol - result.dlmm_pnl.fees_sol,
+                                  result.dlmm_pnl.fees_sol, result.dlmm_pnl.net_pnl_sol))
+
+
+def test_persist_replay_result_rejects_closed_result_without_authoritative_pnl():
+    conn = _connection()
+    from app.research.paper_replay import ReplayResult
+    result = ReplayResult("POS", "P", (), ({"action": "OPEN", "timestamp": 0.0, "price": 1.0},
+                                             {"action": "DRAIN_EXIT", "timestamp": 60.0, "price": 1.0}), ())
+    assert not persist_replay_result(conn, result)
+    assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='paper_trades'").fetchone()[0] == 0
