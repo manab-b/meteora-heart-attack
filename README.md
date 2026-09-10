@@ -32,7 +32,9 @@ No private keys, transaction signing, claims, swaps, or liquidity mutations are 
 
 ## Read-only position collection
 
-The TypeScript collector requires `RPC_URL` and `POSITION_OWNER` and accepts one or more public pool addresses. It emits JSONL observations containing the active bin, position range, raw token balances, raw unclaimed fees, claimed-fee totals and token decimals.
+The TypeScript collector requires `RPC_URL` and `POSITION_OWNER` and accepts one or more public pool addresses. It emits JSONL observations containing the active bin, UI active-bin price, position range, raw token balances, raw unclaimed fees, claimed-fee totals, token mints and token decimals.
+
+The collector remains strictly read-only. Meteora's current DLMM SDK exposes the same position query and active-bin price conversion used here. citeturn1search0turn1search1
 
 Example environment:
 
@@ -55,6 +57,10 @@ Ingest those authoritative observations into SQLite:
 cd ..
 python -m app.collector.ingest_cli positions.jsonl --db meteora.db
 ```
+
+For SOL pairs, the ingestion layer now automatically records the WSOL side at exactly `1.0 SOL` and values the other side from the same observation's Meteora active-bin UI price. The official WSOL mint is `So11111111111111111111111111111111111111112`. citeturn2search0turn2search1
+
+For non-SOL pairs, no synthetic quote is created; an authoritative token quote must still be supplied.
 
 For bin liquidity, set the same `RPC_URL` plus the public pool and observed position range, then collect and ingest:
 
