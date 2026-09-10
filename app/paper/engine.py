@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from time import time
 
 from app.metrics.position_pnl import position_value_usd
+from app.paper.canonical_position import CanonicalPositionState
 
 
 @dataclass
@@ -141,6 +142,12 @@ class PaperEngine:
             p.current_x_price_usd,
             p.current_y_price_usd,
         ).value_usd
+
+    def mark_to_market_sol_from_canonical(self, state: CanonicalPositionState) -> float | None:
+        """Use the authoritative canonical position mark without estimating missing data."""
+        if not state.eligible_for_mtm:
+            return None
+        return state.position_value_sol
 
     def _event(self, action: str, p: PaperPosition, price: float, timestamp: float) -> None:
         self.events.append(
