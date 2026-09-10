@@ -9,8 +9,10 @@ from app.positions.analytics import consecutive_range_survival, position_fee_del
 from app.positions.adapter import normalize_position
 from app.storage.position_analytics import insert_position_analytics
 from app.storage.raw import insert_raw_snapshot
-from app.storage.token_quotes import latest_token_quote
+from app.storage.token_quotes import insert_token_quote, latest_token_quote
 from app.valuation.fee_quote import quote_fee_delta
+
+WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 
 def _timestamp(value: str) -> float:
@@ -26,6 +28,64 @@ def _latest_analytics(connection: sqlite3.Connection, position_address: str):
         ORDER BY observed_at DESC, id DESC LIMIT 1""",
         (position_address,),
     ).fetchone()
+
+
+def _record_wsol_pair_quotes(
+    connection: sqlite3.Connection,
+    payload: dict[str, Any],
+    *,
+    observed_at: float,
+) -> None:
+    """Record exact SOL-side quotes for SOL pairs without inventing an oracle.
+
+    Meteora's UI active-bin price is token-Y per token-X. Therefore a pool with
+    Y=WSOL has X priced directly in SOL; a pool with X=WSOL has Y priced at the
+    reciprocal. Non-SOL pairs are left to an external authoritative resolver.
+    """
+    x_mint = payload.get("token_x_mint")
+    y_mint = payload.get("token_y_mint")
+    price = payload.get("active_bin_price_ui")
+    if not isinstance(price, (int, float)) or price <= 0:
+        return
+
+    if y_mint == WSOL_MINT and x_mint != WSOL_MINT:
+        insert_token_quote(
+            connection,
+            pool_address=str(payload["pool_address"]),
+            token_side="y",
+            price_sol=1.0,
+            observed_at=observed_at,
+            source="meteora-active-bin-sol",
+            token_mint=str(y_mint),
+        )
+        insert_token_quote(
+            connection,
+            pool_address=str(payload["pool_address"]),
+            token_side="x",
+            price_sol=float(price),
+            observed_at=observed_at,
+            source="meteora-active-bin-sol",
+            token_mint=str(x_mint),
+        )
+    elif x_mint == WSOL_MINT and y_mint != WSOL_MINT:
+        insert_token_quote(
+            connection,
+            pool_address=str(payload["pool_address"]),
+            token_side="x",
+            price_sol=1.0,
+            observed_at=observed_at,
+            source="meteora-active-bin-sol",
+            token_mint=str(x_mint),
+        )
+        insert_token_quote(
+            connection,
+            pool_address=str(payload["pool_address"]),
+            token_side="y",
+            price_sol=1.0 / float(price),
+            observed_at=observed_at,
+            source="meteora-active-bin-sol",
+            token_mint=str(y_mint),
+        )
 
 
 def _fee_sol_from_quotes(
@@ -70,6 +130,10 @@ def ingest_position_observation(
     observed_ts = _timestamp(observed_at)
     snapshot = normalize_position(payload, observed_at, source="meteora-sdk")
     insert_raw_snapshot(connection, source="meteora-sdk", endpoint="position_collector", pool_address=snapshot.pool_address, payload=payload, observed_at=observed_at)
+
+    # For SOL pairs, the active-bin price is an authoritative same-observation
+    # quote and removes the previous fee-valuation blocker.
+    _record_wsol_pair_quotes(connection, payload, observed_at=observed_ts)
 
     previous = connection.execute(
         """SELECT unclaimed_fee_x, unclaimed_fee_y, observed_at
