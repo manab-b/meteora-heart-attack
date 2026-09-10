@@ -108,16 +108,16 @@ Replay consumes only persisted position analytics, historical bin prices, drain 
 Replay every persisted position and persist only closed trades with authoritative DLMM PnL:
 
 ```bash
-python -m app.research.replay_cli --db meteora.db
+python -m app.research.paper_replay_cli meteora.db
 ```
 
-Replay selected positions without changing the stored dataset:
+Replay a selected position:
 
 ```bash
-python -m app.research.replay_cli --db meteora.db --position POSITION_ADDRESS --no-persist
+python -m app.research.paper_replay_cli meteora.db --position POSITION_ADDRESS
 ```
 
-The persisted `paper_trades` records are idempotent for the same strategy/pool/entry/exit timestamps. A closed replay without authoritative PnL is not written as a trade.
+Use `--require-paper-trades` when the run must fail unless at least one closed, authoritative paper trade exists. The persisted `paper_trades` records are idempotent for the same strategy/pool/entry/exit timestamps. A closed replay without authoritative PnL is not written as a trade.
 
 ## Paper Replay readiness
 
