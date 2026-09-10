@@ -192,7 +192,8 @@ def test_persist_replay_result_is_idempotent_and_never_invents_pnl():
     conn = _connection()
     observations = (
         ("1970-01-01T00:00:00+00:00", 0.0, 0.0, 0.0),
-        ("1970-01-01T00:01:00+00:00", 60.0, 0.99, 0.01),
+        ("1970-01-01T00:01:00+00:00", 60.0, 0.0, 0.01),
+        ("1970-01-01T00:02:00+00:00", 120.0, 0.99, 0.01),
     )
     for iso_ts, ts, drain_score, fee in observations:
         conn.execute(
@@ -209,9 +210,10 @@ def test_persist_replay_result_is_idempotent_and_never_invents_pnl():
         _drain(conn, ts, drain_score)
         _analytics(conn, ts, fee)
     conn.commit()
-    result = replay_position(conn, position_address="POS", min_fee_velocity_sol_min=0.001)
+    result = replay_position(conn, position_address="POS")
     assert result.closed
     assert result.dlmm_pnl is not None
+    assert [event["action"] for event in result.events] == ["OPEN", "DRAIN_EXIT"]
     assert persist_replay_result(conn, result)
     assert not persist_replay_result(conn, result)
     row = conn.execute("SELECT gross_pnl_sol, fees_sol, net_pnl_sol FROM paper_trades").fetchone()
