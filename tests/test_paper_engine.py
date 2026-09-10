@@ -1,3 +1,4 @@
+from app.paper.canonical_position import CanonicalPositionState
 from app.paper.engine import PaperEngine
 
 
@@ -22,3 +23,61 @@ def test_mark_to_market_uses_real_token_snapshot():
         x_amount=1.5, y_amount=4, x_price_usd=12, y_price_usd=18,
     )
     assert e.mark_to_market_usd("p2") == 90.0
+
+
+def test_mark_to_market_uses_canonical_state_without_estimation():
+    e = PaperEngine()
+    state = CanonicalPositionState(
+        position_address="position",
+        pool_address="pool",
+        observed_at=60.0,
+        active_bin_id=5,
+        lower_bin_id=1,
+        upper_bin_id=10,
+        in_range=True,
+        range_survival_seconds=60.0,
+        drain_score=0.1,
+        x_amount=2.0,
+        y_amount=3.0,
+        x_price_sol=2.0,
+        y_price_sol=3.0,
+        x_decimals=3,
+        y_decimals=3,
+        fee_x_delta_raw=10,
+        fee_y_delta_raw=20,
+        fee_sol=0.08,
+        reset_or_claim=False,
+        position_value_sol=13.0,
+        eligible_for_mtm=True,
+        ineligible_reasons=(),
+    )
+    assert e.mark_to_market_sol_from_canonical(state) == 13.0
+
+
+def test_mark_to_market_rejects_ineligible_canonical_state():
+    e = PaperEngine()
+    state = CanonicalPositionState(
+        position_address="position",
+        pool_address="pool",
+        observed_at=60.0,
+        active_bin_id=5,
+        lower_bin_id=1,
+        upper_bin_id=10,
+        in_range=True,
+        range_survival_seconds=60.0,
+        drain_score=None,
+        x_amount=2.0,
+        y_amount=3.0,
+        x_price_sol=None,
+        y_price_sol=3.0,
+        x_decimals=3,
+        y_decimals=3,
+        fee_x_delta_raw=0,
+        fee_y_delta_raw=0,
+        fee_sol=None,
+        reset_or_claim=False,
+        position_value_sol=None,
+        eligible_for_mtm=False,
+        ineligible_reasons=("missing_or_stale_x_price",),
+    )
+    assert e.mark_to_market_sol_from_canonical(state) is None
