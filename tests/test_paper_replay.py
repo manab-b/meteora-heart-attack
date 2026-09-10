@@ -118,14 +118,32 @@ def test_replay_does_not_enter_without_canonical_position_state():
 
 def test_replay_exits_on_observed_drain_score():
     conn = _connection()
-    for ts in (0.0, 60.0):
-        _bin(conn, "P", 10, ts, 1.0)
-        _bin(conn, "P", 9, ts, 0.99)
-        _bin(conn, "P", 11, ts, 1.01)
-    _drain(conn, 0.0, 0.0)
-    _drain(conn, 60.0, 0.99)
-    _analytics(conn, 0.0, 0.0)
-    _analytics(conn, 60.0, 0.01)
+    for iso_ts, ts, drain_score, fee in (
+        ("1970-01-01T00:00:00+00:00", 0.0, 0.0, 0.0),
+        ("1970-01-01T00:01:00+00:00", 60.0, 0.99, 0.01),
+    ):
+        for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
+            _bin(conn, "P", bin_id, ts, price)
+        _drain(conn, ts, drain_score)
+        _analytics(conn, ts, fee)
+        conn.execute(
+            """INSERT INTO position_snapshots
+            (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
+             deposited_x,deposited_y,unclaimed_fee_x,unclaimed_fee_y,observed_at,source)
+            VALUES ('POS','OWNER','P',9,11,'100','100','0','0',?,'test')""",
+            (iso_ts,),
+        )
+        insert_raw_snapshot(
+            conn,
+            source="test",
+            endpoint="position_collector",
+            pool_address="P",
+            observed_at=iso_ts,
+            payload={"position_address": "POS", "token_x_decimals": 0, "token_y_decimals": 0},
+        )
+        insert_token_quote(conn, pool_address="P", token_side="x", price_sol=1.0, observed_at=ts, source="test")
+        insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
+    conn.commit()
 
     result = replay_position(conn, position_address="POS", max_drain_score=0.95)
     assert result.closed
