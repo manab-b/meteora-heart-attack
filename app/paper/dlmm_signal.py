@@ -52,6 +52,7 @@ def evaluate_canonical_state(
     *,
     min_fee_velocity: float = 0.0,
     max_drain: float = 0.95,
+    min_score: float = 0.7,
 ) -> DlmmSignal:
     """Evaluate the Heart Attack signal from persisted canonical observations.
 
@@ -79,7 +80,7 @@ def evaluate_canonical_state(
     entry_ready = (
         state.in_range is True
         and state.drain_score is not None
-        and score >= 0.7
+        and score >= min_score
         and not exit_signal
     )
     return DlmmSignal(
