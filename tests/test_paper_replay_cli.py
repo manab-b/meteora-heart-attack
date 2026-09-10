@@ -2,6 +2,8 @@ import sqlite3
 
 import pytest
 
+from app.storage.position_analytics import init_position_analytics_schema
+
 from app.research.paper_replay_cli import run
 
 
@@ -18,7 +20,10 @@ _REQUIRED_TABLES = (
 def _empty_database(path):
     connection = sqlite3.connect(path)
     for table in _REQUIRED_TABLES:
-        connection.execute(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
+        if table == "position_analytics":
+            init_position_analytics_schema(connection)
+        else:
+            connection.execute(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
     connection.commit()
     connection.close()
 
