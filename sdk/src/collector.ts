@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { Connection, PublicKey } from "@solana/web3.js";
-import DLMM from "@meteora-ag/dlmm";
+import { DLMM } from "./meteora_dlmm.js";
 
 const rpcUrl = process.env.RPC_URL;
 if (!rpcUrl) throw new Error("RPC_URL is required");
