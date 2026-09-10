@@ -26,6 +26,24 @@ def _args(monkeypatch, db: Path):
     )
 
 
+def _discovery_args(monkeypatch, db: Path):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "collect_positions_once.py",
+            "--rpc-url",
+            "https://api.mainnet-beta.solana.com",
+            "--position-owner",
+            "Bd2Qopx5Hs5YxJxfCoGkKPyfsZgR7Ezq7wCXVQo5pcHQ",
+            "--discover-owner-positions",
+            "--db",
+            str(db),
+            "--sdk-dir",
+            str(Path("sdk")),
+        ],
+    )
+
+
 def test_zero_jsonl_observations_are_failure(monkeypatch, tmp_path: Path):
     class Result:
         returncode = 0
@@ -82,3 +100,25 @@ def test_jsonl_is_piped_into_existing_position_ingest(monkeypatch, tmp_path: Pat
         assert connection.execute("SELECT COUNT(*) FROM raw_snapshots").fetchone()[0] == 1
     finally:
         connection.close()
+
+
+def test_wallet_discovery_passes_discovery_flag(monkeypatch, tmp_path: Path):
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = '{"positions_found":0}\n'
+
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return Result()
+
+    monkeypatch.setattr(collect_positions_once.subprocess, "run", fake_run)
+    monkeypatch.setattr(collect_positions_once.Path, "exists", lambda self: True)
+    _discovery_args(monkeypatch, tmp_path / "meteora.db")
+
+    assert collect_positions_once.main() == 2
+    assert "--discover-owner-positions" in calls[0]
+    assert "--once" in calls[0]
+    assert all("--pool-address" not in item for item in calls[0])
