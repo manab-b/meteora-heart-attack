@@ -134,8 +134,12 @@ def test_replay_exits_on_observed_drain_score():
 
 def test_replay_calculates_dlmm_pnl_from_historical_canonical_states():
     conn = _connection()
-    timestamps = ("1970-01-01T00:01:00+00:00", "1970-01-01T00:02:00+00:00")
-    for index, (iso_ts, ts) in enumerate(zip(timestamps, (60.0, 120.0))):
+    observations = (
+        ("1970-01-01T00:00:00+00:00", 0.0, 0.0, 0.0),
+        ("1970-01-01T00:01:00+00:00", 60.0, 0.0, 0.02),
+        ("1970-01-01T00:02:00+00:00", 120.0, 0.99, 0.01),
+    )
+    for iso_ts, ts, drain_score, fee in observations:
         conn.execute(
             """INSERT INTO position_snapshots
             (position_address,owner,pool_address,lower_bin_id,upper_bin_id,
@@ -159,8 +163,8 @@ def test_replay_calculates_dlmm_pnl_from_historical_canonical_states():
         insert_token_quote(conn, pool_address="P", token_side="y", price_sol=1.0, observed_at=ts, source="test")
         for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
             _bin(conn, "P", bin_id, ts, price)
-        _drain(conn, ts, 0.0 if index == 0 else 0.99)
-        _analytics(conn, ts, 0.02 if index == 0 else 0.01)
+        _drain(conn, ts, drain_score)
+        _analytics(conn, ts, fee)
     conn.commit()
 
     result = replay_position(conn, position_address="POS", min_fee_velocity_sol_min=0.01)
