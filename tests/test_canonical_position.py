@@ -3,6 +3,7 @@ import sqlite3
 
 from app.collector.position_ingest import ingest_jsonl
 from app.paper.canonical_position import load_canonical_position_state
+from app.storage.bin_drain import record_bin_drain
 from app.storage.bin_liquidity import insert_bin_liquidity
 from app.storage.migrations import initialize_database
 from app.storage.token_quotes import insert_token_quote
@@ -38,6 +39,16 @@ def test_canonical_state_reconstructs_amounts_prices_range_and_mtm():
     insert_token_quote(connection, pool_address="pool", token_side="y", price_sol=3.0, observed_at=60.0, source="test")
     insert_bin_liquidity(connection, pool_address="pool", bin_id=5, active_bin_id=5, price="1.5", x_amount_raw="100", y_amount_raw="100", observed_at=0.0, source="test")
     insert_bin_liquidity(connection, pool_address="pool", bin_id=5, active_bin_id=5, price="1.6", x_amount_raw="90", y_amount_raw="90", observed_at=60.0, source="test")
+    record_bin_drain(
+        connection,
+        pool_address="pool",
+        bin_id=5,
+        active_bin_id=5,
+        x_amount_raw="90",
+        y_amount_raw="90",
+        observed_at=60.0,
+        source="test",
+    )
     connection.commit()
 
     ingest_jsonl(
@@ -48,11 +59,20 @@ def test_canonical_state_reconstructs_amounts_prices_range_and_mtm():
     state = load_canonical_position_state(connection, "position")
     assert state is not None
     assert state.active_bin_id == 5
+    assert state.lower_bin_id == 1
+    assert state.upper_bin_id == 10
     assert state.in_range is True
+    assert state.range_survival_seconds == 60.0
+    assert state.drain_score == 0.1
     assert state.x_amount == 2.0
     assert state.y_amount == 3.0
+    assert state.x_decimals == 3
+    assert state.y_decimals == 3
     assert state.x_price_sol == 2.0
     assert state.y_price_sol == 3.0
+    assert state.fee_x_delta_raw == 10
+    assert state.fee_y_delta_raw == 20
+    assert state.reset_or_claim is False
     assert state.position_value_sol == 13.0
     assert state.eligible_for_mtm is True
     assert state.ineligible_reasons == ()
