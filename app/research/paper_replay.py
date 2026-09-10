@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 
@@ -7,6 +8,7 @@ from app.metrics.position_pnl import DlmmPnl, dlmm_pnl_from_canonical_states
 from app.paper.canonical_position import CanonicalPositionState, load_canonical_position_state
 from app.paper.dlmm_signal import evaluate_canonical_state
 from app.paper.engine import PaperEngine
+from app.storage.paper_trades import ensure_paper_trades, record_trade
 
 
 @dataclass(frozen=True)
@@ -313,3 +315,66 @@ def replay_all_positions(
         )
         for row in rows
     )
+
+
+def persist_replay_result(
+    connection: sqlite3.Connection,
+    result: ReplayResult,
+    *,
+    strategy_key: str = "canonical-heart-attack-replay",
+) -> bool:
+    """Persist one closed replay as a paper trade only when authoritative PnL exists.
+
+    No synthetic PnL, fees, prices, or exit records are created. The deterministic
+    position/entry/exit timestamps make repeated replay runs idempotent.
+    """
+    if not result.closed or result.dlmm_pnl is None or not result.points:
+        return False
+    open_events = [event for event in result.events if event["action"] == "OPEN"]
+    exit_events = [
+        event for event in result.events
+        if event["action"] in {"OUT_OF_RANGE", "DRAIN_EXIT"}
+    ]
+    if not open_events or not exit_events:
+        return False
+    opened = open_events[0]
+    exited = exit_events[-1]
+    entry_at = float(opened["timestamp"])
+    exit_at = float(exited["timestamp"])
+    metadata = json.dumps(
+        {"position_address": result.position_address, "source": "authoritative_sqlite_replay"},
+        sort_keys=True,
+    )
+    ensure_paper_trades(connection)
+    exists = connection.execute(
+        """SELECT 1 FROM paper_trades
+           WHERE strategy_key = ? AND pool_address = ? AND entry_at = ? AND exit_at = ?
+           LIMIT 1""",
+        (strategy_key, result.pool_address, entry_at, exit_at),
+    ).fetchone()
+    if exists is not None:
+        return False
+    record_trade(
+        connection,
+        pool_address=result.pool_address,
+        strategy_key=strategy_key,
+        entry_at=entry_at,
+        exit_at=exit_at,
+        entry_price=float(opened["price"]),
+        exit_price=float(exited["price"]),
+        gross_pnl_sol=result.dlmm_pnl.gross_pnl_sol,
+        fees_sol=result.dlmm_pnl.fees_sol,
+        net_pnl_sol=result.dlmm_pnl.net_pnl_sol,
+        exit_reason=exited["action"],
+        metadata_json=metadata,
+    )
+    return True
+
+
+def persist_replay_results(
+    connection: sqlite3.Connection,
+    results: tuple[ReplayResult, ...],
+    *,
+    strategy_key: str = "canonical-heart-attack-replay",
+) -> int:
+    return sum(persist_replay_result(connection, result, strategy_key=strategy_key) for result in results)
