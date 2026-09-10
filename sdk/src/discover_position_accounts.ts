@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { Connection, PublicKey } from "@solana/web3.js";
-import bs58 from "bs58";
 
 const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
 const POSITION_V2_DISCRIMINATOR = createHash("sha256")
@@ -10,12 +9,32 @@ const POSITION_V2_DISCRIMINATOR = createHash("sha256")
 const POSITION_V2_OWNER_OFFSET = 8 + 32;
 const POSITION_V2_LB_PAIR_OFFSET = 8;
 const POSITION_V2_HEADER_BYTES = 8 + 32 + 32;
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 type PositionAccount = {
   position_address: string;
   owner: string;
   pool_address: string;
 };
+
+function encodeBase58(bytes: Uint8Array): string {
+  let digits = [0];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let i = 0; i < digits.length; i += 1) {
+      const value = digits[i] * 256 + carry;
+      digits[i] = value % 58;
+      carry = Math.floor(value / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+  let leadingZeros = 0;
+  while (leadingZeros < bytes.length && bytes[leadingZeros] === 0) leadingZeros += 1;
+  return "1".repeat(leadingZeros) + digits.reverse().map((digit) => BASE58_ALPHABET[digit]).join("");
+}
 
 function parseArgs(argv: string[]) {
   let rpcUrl = process.env.RPC_URL;
@@ -41,7 +60,7 @@ async function main() {
   const { rpcUrl, owner, limit } = parseArgs(process.argv.slice(2));
   const connection = new Connection(rpcUrl, "confirmed");
   const filters: any[] = [
-    { memcmp: { offset: 0, bytes: bs58.encode(POSITION_V2_DISCRIMINATOR) } },
+    { memcmp: { offset: 0, bytes: encodeBase58(POSITION_V2_DISCRIMINATOR) } },
   ];
   if (owner) {
     filters.push({ memcmp: { offset: POSITION_V2_OWNER_OFFSET, bytes: owner } });
