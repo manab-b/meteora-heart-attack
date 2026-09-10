@@ -54,6 +54,21 @@ def test_mark_to_market_uses_canonical_state_without_estimation():
     assert e.mark_to_market_sol_from_canonical(state) == 13.0
 
 
+def test_paper_engine_exposes_canonical_dlmm_pnl():
+    e = PaperEngine()
+    entry = CanonicalPositionState(
+        "position", "pool", 0.0, 5, 1, 10, True, 0.0, 0.0,
+        1.0, 1.0, 2.0, 1.0, 3, 3, 0, 0, None, False, 3.0, True, (),
+    )
+    current = CanonicalPositionState(
+        "position", "pool", 60.0, 5, 1, 10, True, 60.0, 0.1,
+        0.5, 1.4, 3.0, 1.0, 3, 3, 10, 20, 0.1, False, 2.9, True, (),
+    )
+    result = e.dlmm_pnl_from_canonical(entry, current, fees_sol=0.2)
+    assert result.net_pnl_sol == 0.1
+    assert result.il_pct < 0
+
+
 def test_mark_to_market_rejects_ineligible_canonical_state():
     e = PaperEngine()
     state = CanonicalPositionState(
