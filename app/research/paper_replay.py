@@ -3,7 +3,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from app.paper.canonical_position import CanonicalPositionState
+from app.metrics.position_pnl import DlmmPnl, dlmm_pnl_from_canonical_states
+from app.paper.canonical_position import CanonicalPositionState, load_canonical_position_state
 from app.paper.dlmm_signal import evaluate_canonical_state
 from app.paper.engine import PaperEngine
 
@@ -29,6 +30,7 @@ class ReplayResult:
     points: tuple[ReplayPoint, ...]
     events: tuple[dict, ...]
     skipped: tuple[str, ...]
+    dlmm_pnl: DlmmPnl | None = None
 
     @property
     def closed(self) -> bool:
@@ -173,6 +175,41 @@ def _canonical_state(point: ReplayPoint) -> CanonicalPositionState:
     )
 
 
+def _historical_canonical_state(
+    connection: sqlite3.Connection,
+    position_address: str,
+    observed_at: float,
+) -> CanonicalPositionState | None:
+    return load_canonical_position_state(
+        connection,
+        position_address,
+        observed_at=observed_at,
+    )
+
+
+def _authoritative_fee_total(
+    connection: sqlite3.Connection,
+    position_address: str,
+    entry_at: float,
+    exit_at: float,
+) -> float | None:
+    rows = connection.execute(
+        """SELECT fee_sol, reset_or_claim
+           FROM position_analytics
+          WHERE position_address = ?
+            AND observed_at >= ?
+            AND observed_at <= ?
+          ORDER BY observed_at ASC, id ASC""",
+        (position_address, entry_at, exit_at),
+    ).fetchall()
+    if not rows or any(reset_or_claim or fee_sol is None for fee_sol, reset_or_claim in rows):
+        return None
+    total = sum(float(fee_sol) for fee_sol, _ in rows)
+    if total < 0:
+        raise ValueError("authoritative fee total must be non-negative")
+    return total
+
+
 def replay_position(
     connection: sqlite3.Connection,
     *,
@@ -197,12 +234,16 @@ def replay_position(
 
     engine = PaperEngine(out_of_range_seconds=out_of_range_seconds)
     opened = False
-    out_since: float | None = None
+    entry_at: float | None = None
+    entry_state: CanonicalPositionState | None = None
+    exit_at: float | None = None
     skipped: list[str] = []
 
     for point in points:
+        actual_state = _historical_canonical_state(connection, position_address, point.observed_at)
+        signal_state = actual_state if actual_state is not None else _canonical_state(point)
         signal = evaluate_canonical_state(
-            _canonical_state(point),
+            signal_state,
             point.fee_velocity_sol_min,
             min_fee_velocity=min_fee_velocity_sol_min,
             max_drain=max_drain_score,
@@ -219,8 +260,14 @@ def replay_position(
                     max_price=point.upper_price,
                     deposit_sol=deposit_sol,
                     timestamp=point.observed_at,
+                    x_amount=actual_state.x_amount if actual_state else None,
+                    y_amount=actual_state.y_amount if actual_state else None,
+                    x_price_usd=None,
+                    y_price_usd=None,
                 )
                 opened = True
+                entry_at = point.observed_at
+                entry_state = actual_state
             else:
                 skipped.append(f"{point.observed_at}:NO_ENTRY")
                 continue
@@ -230,20 +277,32 @@ def replay_position(
             break
 
         if not point.in_range:
-            if out_since is None:
-                out_since = point.observed_at
-            elif point.observed_at - out_since >= out_of_range_seconds:
+            if position.out_of_range_since is None:
+                position.out_of_range_since = point.observed_at
+            elif point.observed_at - position.out_of_range_since >= out_of_range_seconds:
                 engine.close(position_address, point.price, "OUT_OF_RANGE", point.observed_at)
+                exit_at = point.observed_at
                 break
         else:
-            out_since = None
+            position.out_of_range_since = None
 
         if point.drain_score >= max_drain_score:
             engine.close(position_address, point.price, "DRAIN_EXIT", point.observed_at)
+            exit_at = point.observed_at
             break
 
-        if point is not points[0] or signal.entry is False:
+        if point.observed_at != entry_at:
             engine.tick(position_address, point.price, point.fee_delta_sol, point.observed_at)
+
+    pnl: DlmmPnl | None = None
+    if entry_at is not None and exit_at is not None and entry_state is not None:
+        current_state = _historical_canonical_state(connection, position_address, exit_at)
+        fees_sol = _authoritative_fee_total(connection, position_address, entry_at, exit_at)
+        if current_state is not None and fees_sol is not None:
+            try:
+                pnl = dlmm_pnl_from_canonical_states(entry_state, current_state, fees_sol=fees_sol)
+            except ValueError:
+                pnl = None
 
     return ReplayResult(
         position_address=position_address,
@@ -251,6 +310,7 @@ def replay_position(
         points=points,
         events=tuple(engine.events),
         skipped=tuple(skipped),
+        dlmm_pnl=pnl,
     )
 
 
