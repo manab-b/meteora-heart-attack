@@ -59,6 +59,7 @@ export async function collectBinLiquidity(
   });
   const activeBin = await pool.getActiveBin();
   const observedAt = new Date().toISOString();
-  const bins = await pool.getBinsBetweenLowerAndUpperBound(lowerBinId, upperBinId);
+  const result = await pool.getBinsBetweenLowerAndUpperBound(lowerBinId, upperBinId);
+  const bins = (result as any)?.bins ?? result;
   return entries(bins).map((bin) => normalizeBin(bin, observedAt, poolAddress, asNumber(activeBin.binId, "activeBin.binId")));
 }
