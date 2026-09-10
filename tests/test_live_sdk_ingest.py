@@ -10,16 +10,14 @@ def test_start_process_runs_from_sdk_working_directory(tmp_path: Path):
     marker = tmp_path / "marker.txt"
     script = tmp_path / "write_marker.py"
     script.write_text(
+        "#!/usr/bin/env python3\n"
         "from pathlib import Path\n"
         "Path('marker.txt').write_text('ok')\n",
         encoding="utf-8",
     )
+    script.chmod(0o755)
 
-    process = _start_process(
-        [os.fspath(script)],
-        os.environ.copy(),
-        tmp_path,
-    )
+    process = _start_process([os.fspath(script)], os.environ.copy(), tmp_path)
     stdout, stderr = process.communicate(timeout=5)
 
     assert process.returncode == 0, stderr
