@@ -32,7 +32,7 @@ No private keys, transaction signing, claims, swaps, or liquidity mutations are 
 
 ## Read-only position collection
 
-The TypeScript collector requires `RPC_URL` and `POSITION_OWNER` and accepts one or more pool addresses. It emits JSONL observations containing the active bin, position range, raw token balances, raw unclaimed fees, claimed-fee totals and token decimals.
+The TypeScript collector requires `RPC_URL` and `POSITION_OWNER` and accepts one or more public pool addresses. It emits JSONL observations containing the active bin, position range, raw token balances, raw unclaimed fees, claimed-fee totals and token decimals.
 
 Example environment:
 
@@ -41,7 +41,40 @@ export RPC_URL="https://YOUR_RPC_ENDPOINT"
 export POSITION_OWNER="YOUR_PUBLIC_KEY"
 ```
 
-Then run the SDK collector. The collector does not load a signer or construct/send transactions.
+Collect one position snapshot for a pool:
+
+```bash
+cd sdk
+npm install
+npm run collect:positions -- --once YOUR_POOL_ADDRESS > ../positions.jsonl
+```
+
+Ingest those authoritative observations into SQLite:
+
+```bash
+cd ..
+python -m app.collector.ingest_cli positions.jsonl --db meteora.db
+```
+
+For bin liquidity, set the same `RPC_URL` plus the public pool and observed position range, then collect and ingest:
+
+```bash
+export POOL_ADDRESS="YOUR_POOL_ADDRESS"
+export LOWER_BIN_ID="LOWER_BIN_ID"
+export UPPER_BIN_ID="UPPER_BIN_ID"
+cd sdk
+npm run collect:bins > ../bins.jsonl
+cd ..
+python -m app.collector.bin_ingest_cli bins.jsonl --db meteora.db
+```
+
+Repeat the read-only collection over time to build the historical observation series required by Paper Replay. The collectors do not load a signer or construct/send transactions. Do not replace missing observations with estimates.
+
+## Paper Replay readiness
+
+The replay engine requires authoritative position analytics, bin liquidity/drain observations, historical token quotes, and canonical position state. A dataset that lacks required observations is rejected/left incomplete rather than filled with guessed values.
+
+Local database files are intentionally ignored by Git; they should be supplied to the replay environment rather than committed to the repository.
 
 ## Research target
 
