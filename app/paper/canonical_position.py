@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,10 @@ def _timestamp(value: str) -> float:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
+def _iso_cutoff(observed_at: float) -> str:
+    return datetime.fromtimestamp(observed_at, timezone.utc).isoformat()
+
+
 def _latest_position(connection: sqlite3.Connection, position_address: str, observed_at: float | None = None):
     if observed_at is None:
         return connection.execute(
@@ -52,7 +56,7 @@ def _latest_position(connection: sqlite3.Connection, position_address: str, obse
            FROM position_snapshots
           WHERE position_address = ? AND observed_at <= ?
           ORDER BY observed_at DESC, id DESC LIMIT 1""",
-        (position_address, observed_at),
+        (position_address, _iso_cutoff(observed_at)),
     ).fetchone()
 
 
