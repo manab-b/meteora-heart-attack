@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { Connection } from "@solana/web3.js";
-import { collectPositions } from "./positions.js";
+import { collectPositions, discoverPositionPools } from "./positions.js";
 
 const rpcUrl = process.env.RPC_URL;
 const ownerAddress = process.env.POSITION_OWNER;
@@ -8,16 +8,46 @@ if (!rpcUrl) throw new Error("RPC_URL is required");
 if (!ownerAddress) throw new Error("POSITION_OWNER is required");
 
 const once = process.argv.includes("--once");
-const pools = process.argv.slice(2).filter(x => x !== "--once");
-if (!pools.length) throw new Error("Pass at least one pool address");
+const discoverOwnerPositions = process.argv.includes("--discover-owner-positions");
+const pools = process.argv.slice(2).filter(x => x !== "--once" && x !== "--discover-owner-positions");
+if (discoverOwnerPositions && pools.length) {
+  throw new Error("--discover-owner-positions cannot be combined with pool addresses");
+}
+if (!discoverOwnerPositions && !pools.length) throw new Error("Pass at least one pool address or use --discover-owner-positions");
 
 const intervalMs = Number(process.env.COLLECT_INTERVAL_MS ?? 30000);
 const connection = new Connection(rpcUrl, "confirmed");
 
 async function collectAll() {
-  for (const poolAddress of pools) {
+  const targetPools = discoverOwnerPositions
+    ? await discoverPositionPools(connection, ownerAddress)
+    : pools;
+
+  if (discoverOwnerPositions && targetPools.length === 0) {
+    console.error(JSON.stringify({
+      source: "meteora-sdk",
+      observed_at: new Date().toISOString(),
+      owner: ownerAddress,
+      positions_found: 0,
+      error: "no Meteora PositionV2 accounts found for owner",
+    }));
+    return;
+  }
+
+  for (const poolAddress of targetPools) {
     try {
       const positions = await collectPositions(connection, poolAddress, ownerAddress);
+      if (positions.length === 0) {
+        console.error(JSON.stringify({
+          source: "meteora-sdk",
+          observed_at: new Date().toISOString(),
+          pool_address: poolAddress,
+          owner: ownerAddress,
+          positions_found: 0,
+          error: "no Meteora positions found for owner in requested pool",
+        }));
+        continue;
+      }
       for (const position of positions) console.log(JSON.stringify(position));
     } catch (error) {
       console.error(JSON.stringify({
