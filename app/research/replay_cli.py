@@ -4,14 +4,12 @@ import argparse
 import json
 import sqlite3
 
-from app.research.paper_replay import persist_replay_results, replay_all_positions
+from app.research.paper_replay import persist_replay_results, replay_all_positions, replay_position
 from app.storage.migrations import initialize_database
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Replay persisted authoritative Meteora observations as paper trades."
-    )
+    parser = argparse.ArgumentParser(description="Replay persisted authoritative Meteora observations as paper trades.")
     parser.add_argument("--db", required=True, help="SQLite database containing collected observations")
     parser.add_argument("--position", action="append", dest="positions", help="Replay only this position address; repeatable")
     parser.add_argument("--deposit-sol", type=float, default=1.0)
@@ -42,18 +40,6 @@ def main(argv: list[str] | None = None) -> int:
         initialize_database(conn)
         if args.positions:
             results = tuple(
-                replay_all_positions(
-                    conn,
-                    deposit_sol=args.deposit_sol,
-                    out_of_range_seconds=args.out_of_range_seconds,
-                    max_drain_score=args.max_drain_score,
-                    min_fee_velocity_sol_min=args.min_fee_velocity_sol_min,
-                    min_score=args.min_score,
-                )[0:0]
-            )
-            # Replay the explicitly requested positions without changing the shared replay implementation.
-            from app.research.paper_replay import replay_position
-            results = tuple(
                 replay_position(
                     conn,
                     position_address=position,
@@ -75,9 +61,7 @@ def main(argv: list[str] | None = None) -> int:
                 min_score=args.min_score,
             )
 
-        persisted = 0 if args.no_persist else persist_replay_results(
-            conn, results, strategy_key=args.strategy_key
-        )
+        persisted = 0 if args.no_persist else persist_replay_results(conn, results, strategy_key=args.strategy_key)
         closed = sum(result.closed for result in results)
         print(json.dumps({
             "positions": len(results),
