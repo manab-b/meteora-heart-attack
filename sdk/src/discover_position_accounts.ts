@@ -18,22 +18,16 @@ type PositionAccount = {
 };
 
 function encodeBase58(bytes: Uint8Array): string {
-  let digits = [0];
-  for (const byte of bytes) {
-    let carry = byte;
-    for (let i = 0; i < digits.length; i += 1) {
-      const value = digits[i] * 256 + carry;
-      digits[i] = value % 58;
-      carry = Math.floor(value / 58);
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = Math.floor(carry / 58);
-    }
+  let value = BigInt(`0x${Buffer.from(bytes).toString("hex")}`);
+  const digits: string[] = [];
+  while (value > 0n) {
+    const remainder = Number(value % 58n);
+    digits.push(BASE58_ALPHABET[remainder]);
+    value /= 58n;
   }
   let leadingZeros = 0;
   while (leadingZeros < bytes.length && bytes[leadingZeros] === 0) leadingZeros += 1;
-  return "1".repeat(leadingZeros) + digits.reverse().map((digit) => BASE58_ALPHABET[digit]).join("");
+  return "1".repeat(leadingZeros) + (digits.reverse().join("") || (leadingZeros ? "" : "1"));
 }
 
 function parseArgs(argv: string[]) {
