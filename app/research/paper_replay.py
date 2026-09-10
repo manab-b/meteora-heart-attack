@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from app.paper.canonical_position import CanonicalPositionState
+from app.paper.dlmm_signal import evaluate_canonical_state
 from app.paper.engine import PaperEngine
 
 
@@ -59,14 +61,19 @@ def _drain_score(
     pool_address: str,
     bin_id: int,
     observed_at: float,
-) -> float:
+) -> float | None:
     row = connection.execute(
         """SELECT score FROM bin_drain_events
         WHERE pool_address = ? AND bin_id = ? AND observed_at <= ?
         ORDER BY observed_at DESC, id DESC LIMIT 1""",
         (pool_address, bin_id, observed_at),
     ).fetchone()
-    return 0.0 if row is None else max(0.0, min(1.0, float(row[0])))
+    if row is None or row[0] is None:
+        return None
+    score = float(row[0])
+    if not 0.0 <= score <= 1.0:
+        raise ValueError("stored drain score must be between 0 and 1")
+    return score
 
 
 def build_replay_points(
@@ -75,11 +82,15 @@ def build_replay_points(
     position_address: str,
     min_fee_velocity_sol_min: float = 0.0,
 ) -> tuple[ReplayPoint, ...]:
-    """Build paper-replay points exclusively from stored observations.
+    """Build replay points exclusively from stored position/bin observations.
 
-    Fee values come from position_analytics.fee_sol. Missing fee valuation is
-    intentionally rejected instead of being estimated from pool volume.
+    Position fees come from ``position_analytics.fee_sol``. Missing fee
+    valuation, range facts or drain observations are skipped rather than
+    estimated. Pool-wide volume is never used to manufacture position fees.
     """
+    if min_fee_velocity_sol_min < 0:
+        raise ValueError("min_fee_velocity_sol_min must be non-negative")
+
     rows = connection.execute(
         """SELECT pool_address, observed_at, active_bin_id, lower_bin_id,
                   upper_bin_id, in_range, fee_sol
@@ -92,35 +103,74 @@ def build_replay_points(
     previous_at: float | None = None
     for row in rows:
         pool, observed_at, active_bin, lower_bin, upper_bin, in_range, fee_sol = row
-        if active_bin is None or lower_bin is None or upper_bin is None:
+        if active_bin is None or lower_bin is None or upper_bin is None or in_range is None:
             continue
         if fee_sol is None:
+            continue
+        drain_score = _drain_score(connection, pool, int(active_bin), float(observed_at))
+        if drain_score is None:
             continue
         price = _price_at_bin(connection, pool, int(active_bin), float(observed_at))
         lower_price = _price_at_bin(connection, pool, int(lower_bin), float(observed_at))
         upper_price = _price_at_bin(connection, pool, int(upper_bin), float(observed_at))
         if price is None or lower_price is None or upper_price is None:
             continue
-        elapsed_min = 0.0 if previous_at is None else max(0.0, (float(observed_at) - previous_at) / 60.0)
-        velocity = 0.0 if elapsed_min <= 0 else float(fee_sol) / elapsed_min
+
+        observed_at = float(observed_at)
+        fee_delta = float(fee_sol)
+        if fee_delta < 0:
+            raise ValueError("stored fee delta must be non-negative")
+        elapsed_min = 0.0 if previous_at is None else (observed_at - previous_at) / 60.0
+        if elapsed_min < 0:
+            raise ValueError("position observations must be chronological")
+        velocity = 0.0 if elapsed_min <= 0 else fee_delta / elapsed_min
         if velocity < min_fee_velocity_sol_min:
+            previous_at = observed_at
             continue
+
         points.append(
             ReplayPoint(
                 position_address=position_address,
                 pool_address=pool,
-                observed_at=float(observed_at),
+                observed_at=observed_at,
                 price=price,
-                fee_delta_sol=max(0.0, float(fee_sol)),
+                fee_delta_sol=fee_delta,
                 fee_velocity_sol_min=velocity,
-                drain_score=_drain_score(connection, pool, int(active_bin), float(observed_at)),
+                drain_score=drain_score,
                 in_range=bool(in_range),
                 lower_price=min(lower_price, upper_price),
                 upper_price=max(lower_price, upper_price),
             )
         )
-        previous_at = float(observed_at)
+        previous_at = observed_at
     return tuple(points)
+
+
+def _canonical_state(point: ReplayPoint) -> CanonicalPositionState:
+    return CanonicalPositionState(
+        position_address=point.position_address,
+        pool_address=point.pool_address,
+        observed_at=point.observed_at,
+        active_bin_id=None,
+        lower_bin_id=None,
+        upper_bin_id=None,
+        in_range=point.in_range,
+        range_survival_seconds=0.0,
+        drain_score=point.drain_score,
+        x_amount=None,
+        y_amount=None,
+        x_price_sol=None,
+        y_price_sol=None,
+        x_decimals=None,
+        y_decimals=None,
+        fee_x_delta_raw=0,
+        fee_y_delta_raw=0,
+        fee_sol=point.fee_delta_sol,
+        reset_or_claim=False,
+        position_value_sol=None,
+        eligible_for_mtm=False,
+        ineligible_reasons=("replay_source_does_not_include_token_inventory",),
+    )
 
 
 def replay_position(
@@ -131,6 +181,7 @@ def replay_position(
     out_of_range_seconds: int = 20,
     max_drain_score: float = 0.95,
     min_fee_velocity_sol_min: float = 0.0,
+    min_score: float = 0.7,
 ) -> ReplayResult:
     points = build_replay_points(
         connection,
@@ -138,40 +189,68 @@ def replay_position(
         min_fee_velocity_sol_min=min_fee_velocity_sol_min,
     )
     if not points:
-        return ReplayResult(position_address, "", (), (), ("no_valid_fee_valued_points",))
+        return ReplayResult(position_address, "", (), (), ("no_valid_authoritative_points",))
+    if deposit_sol <= 0:
+        raise ValueError("deposit_sol must be positive")
+    if out_of_range_seconds < 0:
+        raise ValueError("out_of_range_seconds must be non-negative")
 
     engine = PaperEngine(out_of_range_seconds=out_of_range_seconds)
-    first = points[0]
-    engine.open(
-        position_id=position_address,
-        pool_address=first.pool_address,
-        price=first.price,
-        min_price=first.lower_price,
-        max_price=first.upper_price,
-        deposit_sol=deposit_sol,
-        timestamp=first.observed_at,
-    )
+    opened = False
+    out_since: float | None = None
+    skipped: list[str] = []
 
-    for point in points[1:]:
-        if point.drain_score > max_drain_score:
+    for point in points:
+        signal = evaluate_canonical_state(
+            _canonical_state(point),
+            point.fee_velocity_sol_min,
+            min_fee_velocity=min_fee_velocity_sol_min,
+            max_drain=max_drain_score,
+            min_score=min_score,
+        )
+
+        if not opened:
+            if signal.entry:
+                engine.open(
+                    position_id=position_address,
+                    pool_address=point.pool_address,
+                    price=point.price,
+                    min_price=point.lower_price,
+                    max_price=point.upper_price,
+                    deposit_sol=deposit_sol,
+                    timestamp=point.observed_at,
+                )
+                opened = True
+            else:
+                skipped.append(f"{point.observed_at}:NO_ENTRY")
+                continue
+
+        position = engine.positions[position_address]
+        if position.status != "OPEN":
+            break
+
+        if not point.in_range:
+            if out_since is None:
+                out_since = point.observed_at
+            elif point.observed_at - out_since >= out_of_range_seconds:
+                engine.close(position_address, point.price, "OUT_OF_RANGE", point.observed_at)
+                break
+        else:
+            out_since = None
+
+        if point.drain_score >= max_drain_score:
             engine.close(position_address, point.price, "DRAIN_EXIT", point.observed_at)
             break
-        engine.tick(
-            position_address,
-            point.price,
-            point.fee_delta_sol,
-            point.observed_at,
-        )
-        if engine.positions[position_address].status != "OPEN":
-            break
 
-    skipped = () if len(points) == len(set(p.observed_at for p in points)) else ("duplicate_timestamps",)
+        if point is not points[0] or signal.entry is False:
+            engine.tick(position_address, point.price, point.fee_delta_sol, point.observed_at)
+
     return ReplayResult(
         position_address=position_address,
-        pool_address=first.pool_address,
+        pool_address=points[0].pool_address,
         points=points,
         events=tuple(engine.events),
-        skipped=skipped,
+        skipped=tuple(skipped),
     )
 
 
@@ -182,6 +261,7 @@ def replay_all_positions(
     out_of_range_seconds: int = 20,
     max_drain_score: float = 0.95,
     min_fee_velocity_sol_min: float = 0.0,
+    min_score: float = 0.7,
 ) -> tuple[ReplayResult, ...]:
     rows = connection.execute(
         "SELECT DISTINCT position_address FROM position_analytics ORDER BY position_address"
@@ -194,6 +274,7 @@ def replay_all_positions(
             out_of_range_seconds=out_of_range_seconds,
             max_drain_score=max_drain_score,
             min_fee_velocity_sol_min=min_fee_velocity_sol_min,
+            min_score=min_score,
         )
         for row in rows
     )
