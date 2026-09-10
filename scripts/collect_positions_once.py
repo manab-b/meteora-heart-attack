@@ -17,7 +17,13 @@ def main() -> int:
     )
     parser.add_argument("--rpc-url", required=True)
     parser.add_argument("--position-owner", required=True)
-    parser.add_argument("--pool-address", required=True)
+    pool_group = parser.add_mutually_exclusive_group(required=True)
+    pool_group.add_argument("--pool-address")
+    pool_group.add_argument(
+        "--discover-owner-positions",
+        action="store_true",
+        help="Discover all Meteora PositionV2 pools owned by --position-owner using the SDK."
+    )
     parser.add_argument("--db", type=Path, default=Path("meteora.db"))
     parser.add_argument("--sdk-dir", type=Path, default=Path("sdk"))
     args = parser.parse_args()
@@ -36,8 +42,15 @@ def main() -> int:
         }
     )
 
+    collector_args = [str(sdk_bin), "src/position_collector.ts"]
+    if args.discover_owner_positions:
+        collector_args.append("--discover-owner-positions")
+    else:
+        collector_args.append(args.pool_address)
+    collector_args.append("--once")
+
     process = subprocess.run(
-        [str(sdk_bin), "src/position_collector.ts", args.pool_address, "--once"],
+        collector_args,
         cwd=sdk_dir,
         env=env,
         text=True,
