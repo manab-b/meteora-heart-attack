@@ -4,6 +4,8 @@ import sqlite3
 from dataclasses import dataclass
 
 from app.data_quality.observations import ObservationQualityConfig, assess_observation_quality
+from app.paper.canonical_position import CanonicalPositionState
+from app.paper.dlmm_signal import evaluate_canonical_state
 from app.paper.engine import PaperEngine
 from app.scanner.live import scan_paper_opportunities
 from app.storage.paper_trades import persist_engine
@@ -41,6 +43,27 @@ def evaluate_paper_entries(
         ):
             decisions.append(PaperDecision(candidate.pool_address, "ENTER"))
     return decisions
+
+
+def evaluate_canonical_paper_decision(
+    state: CanonicalPositionState,
+    *,
+    fee_velocity_sol_min: float,
+    min_fee_velocity: float = 0.0,
+    max_drain: float = 0.95,
+) -> PaperDecision:
+    """Turn one canonical observation into a deterministic paper decision."""
+    signal = evaluate_canonical_state(
+        state,
+        fee_velocity_sol_min,
+        min_fee_velocity=min_fee_velocity,
+        max_drain=max_drain,
+    )
+    if signal.entry:
+        return PaperDecision(state.pool_address, "ENTER", ",".join(signal.reasons))
+    if signal.exit:
+        return PaperDecision(state.pool_address, "EXIT", ",".join(signal.reasons))
+    return PaperDecision(state.pool_address, "HOLD", ",".join(signal.reasons))
 
 
 def evaluate_paper_exit(*, pool_address: str = "", in_range: bool, out_of_range_seconds: float,
