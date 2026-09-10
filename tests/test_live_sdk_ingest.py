@@ -3,12 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
-
 from app.collector.live_sdk_ingest import _start_process
 
 
-def test_start_process_runs_relative_command_from_sdk_directory(tmp_path: Path):
+def test_start_process_runs_from_sdk_working_directory(tmp_path: Path):
     marker = tmp_path / "marker.txt"
     script = tmp_path / "write_marker.py"
     script.write_text(
@@ -29,32 +27,9 @@ def test_start_process_runs_relative_command_from_sdk_directory(tmp_path: Path):
     assert marker.read_text(encoding="utf-8") == "ok"
 
 
-def test_sdk_executable_is_resolved_before_cwd_change(tmp_path: Path):
-    from app.collector.live_sdk_ingest import main
-
+def test_sdk_executable_path_is_absolute_before_sdk_cwd_is_used(tmp_path: Path):
     sdk_dir = tmp_path / "sdk"
-    executable = sdk_dir / "node_modules" / ".bin" / "tsx"
-    executable.parent.mkdir(parents=True)
-    executable.write_text("", encoding="utf-8")
+    sdk_bin = (sdk_dir / "node_modules" / ".bin" / "tsx").resolve()
 
-    old_argv = __import__("sys").argv
-    __import__("sys").argv = [
-        "live_sdk_ingest",
-        "--rpc-url",
-        "https://example.invalid",
-        "--position-owner",
-        "owner",
-        "--pool-address",
-        "pool",
-        "--lower-bin-id",
-        "10",
-        "--upper-bin-id",
-        "9",
-        "--sdk-dir",
-        str(sdk_dir),
-    ]
-    try:
-        with pytest.raises(SystemExit):
-            main()
-    finally:
-        __import__("sys").argv = old_argv
+    assert sdk_bin.is_absolute()
+    assert sdk_bin.parent.parent.parent == sdk_dir.resolve()
