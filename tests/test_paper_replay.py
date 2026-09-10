@@ -102,7 +102,7 @@ def test_replay_requires_authoritative_drain_observation():
     assert result.skipped == ("no_valid_authoritative_points",)
 
 
-def test_replay_enters_only_after_canonical_signal_is_ready():
+def test_replay_does_not_enter_without_canonical_position_state():
     conn = _connection()
     for ts in (0.0, 60.0):
         for bin_id, price in ((9, 0.99), (10, 1.0), (11, 1.01)):
@@ -112,8 +112,8 @@ def test_replay_enters_only_after_canonical_signal_is_ready():
     _analytics(conn, 60.0, 0.02)
 
     result = replay_position(conn, position_address="POS", min_fee_velocity_sol_min=0.01)
-    assert any(event["action"] == "OPEN" for event in result.events)
-    assert result.events[0]["timestamp"] == pytest.approx(60.0)
+    assert not any(event["action"] == "OPEN" for event in result.events)
+    assert result.skipped == ("60.0:NO_CANONICAL_STATE",)
 
 
 def test_replay_exits_on_observed_drain_score():
