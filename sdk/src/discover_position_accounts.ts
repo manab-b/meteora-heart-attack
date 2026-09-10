@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const DLMM_PROGRAM_ID = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
-const POSITION_V2_DISCRIMINATOR = createHash("sha256")
-  .update("account:positionV2")
-  .digest()
-  .subarray(0, 8);
+const POSITION_V2_DISCRIMINATOR = Buffer.from([
+  117, 176, 212, 199,
+  245, 180, 133, 182,
+]);
 const POSITION_V2_OWNER_OFFSET = 8 + 32;
 const POSITION_V2_LB_PAIR_OFFSET = 8;
 const POSITION_V2_HEADER_BYTES = 8 + 32 + 32;
