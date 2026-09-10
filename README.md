@@ -34,7 +34,7 @@ No private keys, transaction signing, claims, swaps, or liquidity mutations are 
 
 The TypeScript collector requires `RPC_URL` and `POSITION_OWNER` and accepts one or more public pool addresses. It emits JSONL observations containing the active bin, UI active-bin price, position range, raw token balances, raw unclaimed fees, claimed-fee totals, token mints and token decimals.
 
-The collector remains strictly read-only. Meteora's current DLMM SDK exposes the same position query and active-bin price conversion used here.
+Meteora's current DLMM SDK exposes the position query and active-bin price conversion used by the collector.
 
 Example environment:
 
@@ -58,11 +58,36 @@ cd ..
 python -m app.collector.ingest_cli positions.jsonl --db meteora.db
 ```
 
-For SOL pairs, the ingestion layer now automatically records the WSOL side at exactly `1.0 SOL` and values the other side from the same observation's Meteora active-bin UI price. The official WSOL mint is `So11111111111111111111111111111111111111112`.
+For SOL pairs, the ingestion layer automatically records the WSOL side at exactly `1.0 SOL` and values the other side from the same observation's Meteora active-bin UI price. The official WSOL mint is `So11111111111111111111111111111111111111112`.
 
 For non-SOL pairs, no synthetic quote is created; an authoritative token quote must still be supplied.
 
-For bin liquidity, set the same `RPC_URL` plus the public pool and observed position range, then collect and ingest:
+### Continuous collection + direct SQLite ingest
+
+The new runner starts both read-only SDK collectors and writes every valid observation directly into SQLite. No intermediate JSONL files are required:
+
+```bash
+python -m app.collector.live_sdk_ingest \
+  --rpc-url "$RPC_URL" \
+  --position-owner "$POSITION_OWNER" \
+  --pool-address "$POOL_ADDRESS" \
+  --lower-bin-id "$LOWER_BIN_ID" \
+  --upper-bin-id "$UPPER_BIN_ID" \
+  --db meteora.db \
+  --interval-ms 30000
+```
+
+Install the SDK dependencies once before starting it:
+
+```bash
+cd sdk
+npm install
+cd ..
+```
+
+The runner keeps raw observations and derived analytics in the same SQLite database, while still refusing to invent missing non-SOL quotes.
+
+For bin liquidity, the standalone collector remains available:
 
 ```bash
 export POOL_ADDRESS="YOUR_POOL_ADDRESS"
