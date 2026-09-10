@@ -7,6 +7,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Allow direct execution from the repository root (e.g. `python scripts/...py`).
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from app.collector.bin_ingest import ingest_jsonl
 from app.storage.migrations import initialize_database
 
