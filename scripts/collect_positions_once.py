@@ -39,15 +39,14 @@ def main() -> int:
             "RPC_URL": args.rpc_url,
             "POSITION_OWNER": args.position_owner,
             "COLLECT_INTERVAL_MS": "1",
+            "COLLECT_ONCE": "1",
+            "DISCOVER_OWNER_POSITIONS": "1" if args.discover_owner_positions else "0",
         }
     )
 
     collector_args = [str(sdk_bin), "src/position_collector.ts"]
-    if args.discover_owner_positions:
-        collector_args.append("--discover-owner-positions")
-    else:
+    if not args.discover_owner_positions:
         collector_args.append(args.pool_address)
-    collector_args.append("--once")
 
     process = subprocess.run(
         collector_args,
