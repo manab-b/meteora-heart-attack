@@ -5,7 +5,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from app.research.paper_replay import replay_all_positions, replay_position
+from app.research.paper_replay import persist_replay_results, replay_all_positions, replay_position
+from app.storage.paper_trades import ensure_paper_trades
 
 
 _REQUIRED_TABLES = (
@@ -19,27 +20,22 @@ _REQUIRED_TABLES = (
 
 
 def _validate_database(connection: sqlite3.Connection) -> None:
-    rows = connection.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'"
-    ).fetchall()
+    rows = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
     available = {row[0] for row in rows}
     missing = [name for name in _REQUIRED_TABLES if name not in available]
     if missing:
-        raise ValueError(
-            "database is missing required authoritative tables: " + ", ".join(missing)
-        )
+        raise ValueError("database is missing required authoritative tables: " + ", ".join(missing))
 
 
 def _result_payload(result) -> dict:
-    closed = result.closed
     payload = {
         "position_address": result.position_address,
         "pool_address": result.pool_address,
         "observations": len(result.points),
-        "closed": closed,
+        "closed": result.closed,
         "events": list(result.events),
         "skipped": list(result.skipped),
-        "paper_trade": closed,
+        "paper_trade": False,
     }
     if result.dlmm_pnl is not None:
         payload["dlmm_pnl"] = {
@@ -63,52 +59,50 @@ def run(
     min_fee_velocity_sol_min: float = 0.0,
     min_score: float = 0.7,
     require_paper_trades: bool = False,
+    strategy_key: str = "canonical-heart-attack-replay",
 ) -> dict:
     path = Path(db_path)
     if not path.is_file():
         raise FileNotFoundError(f"SQLite database not found: {path}")
-
     with sqlite3.connect(path) as connection:
         _validate_database(connection)
         if position_address:
             results = (
                 replay_position(
-                    connection,
-                    position_address=position_address,
-                    deposit_sol=deposit_sol,
-                    out_of_range_seconds=out_of_range_seconds,
-                    max_drain_score=max_drain_score,
-                    min_fee_velocity_sol_min=min_fee_velocity_sol_min,
-                    min_score=min_score,
+                    connection, position_address=position_address, deposit_sol=deposit_sol,
+                    out_of_range_seconds=out_of_range_seconds, max_drain_score=max_drain_score,
+                    min_fee_velocity_sol_min=min_fee_velocity_sol_min, min_score=min_score,
                 ),
             )
         else:
             results = replay_all_positions(
-                connection,
-                deposit_sol=deposit_sol,
-                out_of_range_seconds=out_of_range_seconds,
-                max_drain_score=max_drain_score,
-                min_fee_velocity_sol_min=min_fee_velocity_sol_min,
+                connection, deposit_sol=deposit_sol, out_of_range_seconds=out_of_range_seconds,
+                max_drain_score=max_drain_score, min_fee_velocity_sol_min=min_fee_velocity_sol_min,
                 min_score=min_score,
             )
+        ensure_paper_trades(connection)
+        persisted = persist_replay_results(connection, results, strategy_key=strategy_key)
+        trades = [_result_payload(result) for result in results]
+        for item, result in zip(trades, results):
+            if result.closed and result.dlmm_pnl is not None:
+                item["paper_trade"] = True
+        paper_trade_count = connection.execute(
+            "SELECT COUNT(*) FROM paper_trades WHERE strategy_key = ?", (strategy_key,)
+        ).fetchone()[0]
 
-    trades = [_result_payload(result) for result in results]
-    closed = sum(item["paper_trade"] for item in trades)
-    if require_paper_trades and closed == 0:
+    if require_paper_trades and paper_trade_count == 0:
         raise ValueError("replay produced no closed paper trades")
-
     return {
         "database": str(path),
         "positions_replayed": len(trades),
-        "paper_trades": closed,
+        "paper_trades": paper_trade_count,
+        "persisted_this_run": persisted,
         "results": trades,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Replay persisted Meteora observations as read-only paper trades."
-    )
+    parser = argparse.ArgumentParser(description="Replay persisted Meteora observations as read-only paper trades.")
     parser.add_argument("database", help="path to the persisted SQLite database")
     parser.add_argument("--position", dest="position_address")
     parser.add_argument("--deposit-sol", type=float, default=1.0)
@@ -116,22 +110,14 @@ def main() -> int:
     parser.add_argument("--max-drain-score", type=float, default=0.95)
     parser.add_argument("--min-fee-velocity-sol-min", type=float, default=0.0)
     parser.add_argument("--min-score", type=float, default=0.7)
-    parser.add_argument(
-        "--require-paper-trades",
-        action="store_true",
-        help="fail unless the replay produces at least one closed paper trade",
-    )
+    parser.add_argument("--strategy-key", default="canonical-heart-attack-replay")
+    parser.add_argument("--require-paper-trades", action="store_true", help="fail unless at least one closed paper trade exists")
     args = parser.parse_args()
-
     payload = run(
-        args.database,
-        position_address=args.position_address,
-        deposit_sol=args.deposit_sol,
-        out_of_range_seconds=args.out_of_range_seconds,
-        max_drain_score=args.max_drain_score,
-        min_fee_velocity_sol_min=args.min_fee_velocity_sol_min,
-        min_score=args.min_score,
-        require_paper_trades=args.require_paper_trades,
+        args.database, position_address=args.position_address, deposit_sol=args.deposit_sol,
+        out_of_range_seconds=args.out_of_range_seconds, max_drain_score=args.max_drain_score,
+        min_fee_velocity_sol_min=args.min_fee_velocity_sol_min, min_score=args.min_score,
+        require_paper_trades=args.require_paper_trades, strategy_key=args.strategy_key,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
