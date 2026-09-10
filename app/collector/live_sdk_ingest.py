@@ -29,7 +29,7 @@ def _reader(
                 print(f"[{label}] {text}", file=sys.stderr)
                 continue
             handler(payload)
-        except Exception as exc:  # keep the long-running collector alive
+        except Exception as exc:
             print(f"[{label}] ingest error: {exc}", file=sys.stderr)
     stream.close()
 
@@ -104,15 +104,16 @@ def main() -> int:
         }
     )
 
-    sdk_bin = args.sdk_dir / "node_modules" / ".bin" / "tsx"
+    sdk_dir = args.sdk_dir.resolve()
+    sdk_bin = sdk_dir / "node_modules" / ".bin" / "tsx"
     if not sdk_bin.exists():
-        raise SystemExit(f"tsx executable not found: {sdk_bin}. Run npm install in {args.sdk_dir} first.")
+        raise SystemExit(f"tsx executable not found: {sdk_bin}. Run npm install in {sdk_dir} first.")
 
     position_process = _start_process(
-        [str(sdk_bin), "src/position_collector.ts", args.pool_address], env, args.sdk_dir
+        [str(sdk_bin), "src/position_collector.ts", args.pool_address], env, sdk_dir
     )
     bin_process = _start_process(
-        [str(sdk_bin), "src/bin_collector.ts"], env, args.sdk_dir
+        [str(sdk_bin), "src/bin_collector.ts"], env, sdk_dir
     )
 
     threads = [
