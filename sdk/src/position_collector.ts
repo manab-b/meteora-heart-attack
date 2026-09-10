@@ -7,9 +7,16 @@ const ownerAddress = process.env.POSITION_OWNER;
 if (!rpcUrl) throw new Error("RPC_URL is required");
 if (!ownerAddress) throw new Error("POSITION_OWNER is required");
 
-const once = process.argv.includes("--once");
-const discoverOwnerPositions = process.argv.includes("--discover-owner-positions");
-const pools = process.argv.slice(2).filter(x => x !== "--once" && x !== "--discover-owner-positions");
+const cliArgs = process.argv.slice(2);
+const once = cliArgs.includes("--once") || process.env.COLLECT_ONCE === "1";
+// tsx may consume unknown long options before forwarding argv to the script.
+// Keep discovery available through an environment flag so the one-shot Python
+// wrapper can invoke the same collector without relying on tsx argument parsing.
+const discoverOwnerPositions =
+  cliArgs.includes("--discover-owner-positions") || process.env.DISCOVER_OWNER_POSITIONS === "1";
+const pools = cliArgs.filter(
+  (x) => x !== "--" && x !== "--once" && x !== "--discover-owner-positions",
+);
 if (discoverOwnerPositions && pools.length) {
   throw new Error("--discover-owner-positions cannot be combined with pool addresses");
 }
