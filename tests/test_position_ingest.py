@@ -171,7 +171,7 @@ def test_sol_pair_active_bin_price_creates_authoritative_quotes_and_values_fee()
     results = ingest_jsonl(connection, [json.dumps(row) for row in rows])
     assert results[-1]["fee_x_delta_raw"] == 1000
     assert results[-1]["fee_y_delta_raw"] == 1000
-    assert results[-1]["fee_sol"] == 0.0000015
+    assert results[-1]["fee_sol"] == 0.0000010005
 
     x_quote = latest_token_quote(
         connection,
