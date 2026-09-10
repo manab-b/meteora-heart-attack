@@ -1,6 +1,7 @@
 name: Paper Replay Tests
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - "app/research/**"
