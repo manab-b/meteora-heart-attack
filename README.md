@@ -64,7 +64,7 @@ For non-SOL pairs, no synthetic quote is created; an authoritative token quote m
 
 ### Continuous collection + direct SQLite ingest
 
-The new runner starts both read-only SDK collectors and writes every valid observation directly into SQLite. No intermediate JSONL files are required:
+The runner starts both read-only SDK collectors and writes every valid observation directly into SQLite. No intermediate JSONL files are required:
 
 ```bash
 python -m app.collector.live_sdk_ingest \
@@ -100,6 +100,24 @@ python -m app.collector.bin_ingest_cli bins.jsonl --db meteora.db
 ```
 
 Repeat the read-only collection over time to build the historical observation series required by Paper Replay. The collectors do not load a signer or construct/send transactions. Do not replace missing observations with estimates.
+
+## Authoritative SQLite Paper Replay
+
+Replay consumes only persisted position analytics, historical bin prices, drain observations, canonical position state and authoritative token quotes. Missing facts make a point ineligible instead of being estimated.
+
+Replay every persisted position and persist only closed trades with authoritative DLMM PnL:
+
+```bash
+python -m app.research.replay_cli --db meteora.db
+```
+
+Replay selected positions without changing the stored dataset:
+
+```bash
+python -m app.research.replay_cli --db meteora.db --position POSITION_ADDRESS --no-persist
+```
+
+The persisted `paper_trades` records are idempotent for the same strategy/pool/entry/exit timestamps. A closed replay without authoritative PnL is not written as a trade.
 
 ## Paper Replay readiness
 
