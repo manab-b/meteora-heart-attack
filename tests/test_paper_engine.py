@@ -1,3 +1,5 @@
+import pytest
+
 from app.paper.canonical_position import CanonicalPositionState
 from app.paper.engine import PaperEngine
 
@@ -65,7 +67,7 @@ def test_paper_engine_exposes_canonical_dlmm_pnl():
         0.5, 1.4, 3.0, 1.0, 3, 3, 10, 20, 0.1, False, 2.9, True, (),
     )
     result = e.dlmm_pnl_from_canonical(entry, current, fees_sol=0.2)
-    assert result.net_pnl_sol == 0.1
+    assert result.net_pnl_sol == pytest.approx(0.1)
     assert result.il_pct < 0
 
 
