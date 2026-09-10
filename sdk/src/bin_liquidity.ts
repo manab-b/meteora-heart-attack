@@ -1,5 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import DLMM from "@meteora-ag/dlmm";
+import { DLMM } from "./meteora_dlmm.js";
 
 export type BinLiquidityObservation = {
   source: "meteora-sdk";
