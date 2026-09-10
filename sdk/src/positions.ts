@@ -8,6 +8,7 @@ export type PositionObservation = {
   owner: string;
   active_bin_id: number;
   active_bin_price: string;
+  active_bin_price_ui: number;
   position_address: string;
   lower_bin_id: number;
   upper_bin_id: number;
@@ -17,6 +18,8 @@ export type PositionObservation = {
   fee_y_raw: string;
   total_claimed_fee_x_raw: string;
   total_claimed_fee_y_raw: string;
+  token_x_mint: string;
+  token_y_mint: string;
   token_x_decimals: number | null;
   token_y_decimals: number | null;
 };
@@ -49,8 +52,14 @@ export async function collectPositions(
   const observedAt = new Date().toISOString();
   const tokenXDecimals = pool.tokenX.decimal ?? null;
   const tokenYDecimals = pool.tokenY.decimal ?? null;
+  const tokenXMint = pool.tokenX.publicKey.toBase58();
+  const tokenYMint = pool.tokenY.publicKey.toBase58();
   const activeBinId = asNumber(result.activeBin.binId, "activeBin.binId");
   const activeBinPrice = asString(result.activeBin.price);
+  const activeBinPriceUi = asNumber(
+    pool.fromPricePerLamport(Number(result.activeBin.price)),
+    "activeBin.price_ui",
+  );
 
   return result.userPositions.map((position: any) => {
     const data = position.positionData;
@@ -61,6 +70,7 @@ export async function collectPositions(
       owner: ownerAddress,
       active_bin_id: activeBinId,
       active_bin_price: activeBinPrice,
+      active_bin_price_ui: activeBinPriceUi,
       position_address: position.publicKey.toString(),
       lower_bin_id: asNumber(data.lowerBinId, "lowerBinId"),
       upper_bin_id: asNumber(data.upperBinId, "upperBinId"),
@@ -70,6 +80,8 @@ export async function collectPositions(
       fee_y_raw: asString(data.feeY),
       total_claimed_fee_x_raw: asString(data.totalClaimedFeeXAmount),
       total_claimed_fee_y_raw: asString(data.totalClaimedFeeYAmount),
+      token_x_mint: tokenXMint,
+      token_y_mint: tokenYMint,
       token_x_decimals: tokenXDecimals,
       token_y_decimals: tokenYDecimals,
     };
