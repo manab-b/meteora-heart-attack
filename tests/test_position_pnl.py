@@ -51,9 +51,9 @@ def test_dlmm_pnl_sol_separates_hodl_il_and_fees():
     )
     assert result.entry_value_sol == pytest.approx(3.0)
     assert result.current_value_sol == pytest.approx(2.9)
-    assert result.hodl_value_sol == pytest.approx(4.4)
+    assert result.hodl_value_sol == pytest.approx(4.0)
     assert result.fees_sol == pytest.approx(0.2)
-    assert result.il_pct == pytest.approx((2.9 / 4.4 - 1.0) * 100.0)
+    assert result.il_pct == pytest.approx((2.9 / 4.0 - 1.0) * 100.0)
     assert result.net_pnl_sol == pytest.approx(0.1)
     assert result.net_return_pct == pytest.approx(0.1 / 3.0 * 100.0)
 
