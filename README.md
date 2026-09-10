@@ -34,7 +34,7 @@ No private keys, transaction signing, claims, swaps, or liquidity mutations are 
 
 The TypeScript collector requires `RPC_URL` and `POSITION_OWNER` and accepts one or more public pool addresses. It emits JSONL observations containing the active bin, UI active-bin price, position range, raw token balances, raw unclaimed fees, claimed-fee totals, token mints and token decimals.
 
-Meteora's current DLMM SDK exposes the position query and active-bin price conversion used by the collector.
+Meteora's current DLMM SDK exposes both pool-specific position queries and a read-only wallet-wide PositionV2 discovery method. The collector can use the wallet-wide method to find the actual pools where an owner has Meteora positions, avoiding the assumption that an arbitrary pool contains the owner's LP position.
 
 Example environment:
 
@@ -43,15 +43,23 @@ export RPC_URL="https://YOUR_RPC_ENDPOINT"
 export POSITION_OWNER="YOUR_PUBLIC_KEY"
 ```
 
-Collect one position snapshot for a pool:
+Discover all Meteora PositionV2 pools owned by the wallet and collect one snapshot from each discovered pool:
 
 ```bash
 cd sdk
 npm install
+npm run collect:positions -- --discover-owner-positions --once
+```
+
+For a known pool, collect one position snapshot directly:
+
+```bash
 npm run collect:positions -- --once YOUR_POOL_ADDRESS > ../positions.jsonl
 ```
 
-Ingest those authoritative observations into SQLite:
+The discovery mode is read-only: it uses the SDK's owner-position account query and does not require a signer, private key, transaction, claim, swap, or liquidity mutation.
+
+Ingest authoritative observations into SQLite:
 
 ```bash
 cd ..
